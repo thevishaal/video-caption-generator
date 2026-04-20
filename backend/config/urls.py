@@ -1,0 +1,11 @@
+from django.contrib import admin
+from django.urls import path, include
+from accounts import views
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('', views.Home.as_view(), name='home'),
+    path("api/auth/", include("accounts.urls")),
+    path("api/captions/", include("captions.urls")),
+    path("api/videos/", include("videos.urls")),
+]
