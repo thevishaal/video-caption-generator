@@ -11,7 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from .utils import generate_token
 from django.conf import settings
 from .utils import async_task, send_password_reset_email, send_verification_email
-
+from rest_framework.permissions import AllowAny
 
 
 class Home(APIView):
@@ -23,6 +23,7 @@ class Home(APIView):
 
 
 class RegisterView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         
@@ -41,6 +42,7 @@ class RegisterView(APIView):
     
 
 class VerifyEmailView(APIView):
+    permission_classes = [AllowAny]
     def get(self, request, token):
         if not token:
             return Response({
@@ -83,6 +85,7 @@ class VerifyEmailView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
 
 class ResendVerificationEmailView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         email = request.data.get("email")
 
@@ -126,6 +129,7 @@ class ResendVerificationEmailView(APIView):
 
 
 class LoginView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
 
@@ -143,6 +147,7 @@ class LoginView(APIView):
     
 
 class RefreshTokenView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         refresh_token = request.data.get('refresh_token')
 
@@ -185,6 +190,7 @@ class RefreshTokenView(APIView):
         
 
 class LogoutView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         refresh_token = request.data.get("refresh_token")
 
@@ -263,6 +269,7 @@ class ChangePasswordView(APIView):
     
 
 class ForgotPasswordView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         serializer = ForgotPasswordSerializer(data=request.data)
 
@@ -300,6 +307,7 @@ class ForgotPasswordView(APIView):
         }, status=status.HTTP_400_BAD_REQUEST)
     
 class ResetPasswordView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request, token):
         serializer = ResetPasswordSerializer(data=request.data)
 
