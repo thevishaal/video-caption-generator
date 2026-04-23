@@ -32,7 +32,25 @@ class VideoUploadSerializer(serializers.ModelSerializer):
         return video
 
 
+class VideoListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for listing multiple videos."""
+
+    class Meta:
+        model = Video
+        fields = [
+            "id",
+            "title",
+            "original_filename",
+            "file_size",
+            "duration_seconds",
+            "language",
+            "status",
+            "created_at",
+        ]
+
+
 class VideoPreviewSerializer(serializers.ModelSerializer):
+    """Full detail serializer with an absolute preview URL."""
     preview_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -69,12 +87,18 @@ class ExportRequestSerializer(serializers.Serializer):
     def validate_export_format(self, value):
         value = value.lower()
         if value not in SUPPORTED_EXPORT_FORMATS:
-            raise serializers.ValidationError("Unsupported export format.")
+            raise serializers.ValidationError(
+                f"Unsupported export format '{value}'. "
+                f"Supported: {', '.join(SUPPORTED_EXPORT_FORMATS)}"
+            )
         return value
 
     def validate_resolution(self, value):
         if value not in SUPPORTED_RESOLUTIONS:
-            raise serializers.ValidationError("Unsupported resolution.")
+            raise serializers.ValidationError(
+                f"Unsupported resolution '{value}'. "
+                f"Supported: {', '.join(SUPPORTED_RESOLUTIONS)}"
+            )
         return value
 
 
@@ -97,7 +121,8 @@ class ExportJobSerializer(serializers.ModelSerializer):
 
     def get_download_url(self, obj):
         request = self.context.get("request")
-        if not obj.output_file:
+        if not obj.output_file or obj.status != "completed":
             return None
+        # Build the download URL using the video's pk
         url = f"/api/videos/{obj.video_id}/download/"
         return request.build_absolute_uri(url) if request else url

@@ -59,7 +59,9 @@ class Video(TimeStampedModel):
     fps = models.FloatField(null=True, blank=True)
     codec = models.CharField(max_length=100, blank=True)
     language = models.CharField(max_length=20, default="en")
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=VIDEO_STATUS_UPLOADED)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=VIDEO_STATUS_UPLOADED
+    )
 
     class Meta:
         ordering = ["-created_at"]
@@ -77,7 +79,9 @@ class ExportJob(TimeStampedModel):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    video = models.ForeignKey(Video, on_delete=models.CASCADE, related_name="export_jobs")
+    video = models.ForeignKey(
+        Video, on_delete=models.CASCADE, related_name="export_jobs"
+    )
     requested_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -86,8 +90,12 @@ class ExportJob(TimeStampedModel):
     export_format = models.CharField(max_length=20, default="mp4")
     resolution = models.CharField(max_length=20, default="1280x720")
     language = models.CharField(max_length=20, default="en")
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=EXPORT_STATUS_PENDING)
-    output_file = models.FileField(upload_to=export_video_path, null=True, blank=True)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=EXPORT_STATUS_PENDING
+    )
+    output_file = models.FileField(
+        upload_to=export_video_path, null=True, blank=True
+    )
     error_message = models.TextField(blank=True)
 
     class Meta:

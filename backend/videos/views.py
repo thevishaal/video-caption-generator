@@ -39,7 +39,7 @@ def api_error(message="Something went wrong", data=None, http_status=status.HTTP
 
 
 class VideoUploadView(APIView):
-    permission_classes = [IsAuthenticated, IsVideoOwner]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         serializer = VideoUploadSerializer(data=request.data, context={"request": request})
@@ -49,8 +49,8 @@ class VideoUploadView(APIView):
 
         try:
             populate_video_metadata(video)
-        except Exception as exc:
-            video.status = "uploaded"   # keep file, just metadata failed
+        except Exception:
+            video.status = "uploaded"  
             video.save(update_fields=["status", "updated_at"])
 
         response_data = VideoPreviewSerializer(video, context={"request": request}).data
@@ -64,16 +64,16 @@ class VideoUploadView(APIView):
 class VideoPreviewView(APIView):
     permission_classes = [IsAuthenticated, IsVideoOwner]
 
-    def get_object(self, pk, user):
+    def get_object(self, pk):
         video = get_object_or_404(Video, pk=pk)
         self.check_object_permissions(self.request, video)
         return video
 
     def get(self, request, pk):
-        video = self.get_object(pk, request.user)
+        video = self.get_object(pk)
         serializer = VideoPreviewSerializer(video, context={"request": request})
         return api_success(data=serializer.data, message="Video preview fetched successfully.")
-    
+
 
 class VideoExportView(APIView):
     permission_classes = [IsAuthenticated, IsVideoOwner]
@@ -84,10 +84,9 @@ class VideoExportView(APIView):
         return video
 
     def post(self, request, pk):
-        if video.status != "ready":
-            return api_error("Video not ready for export", http_status=400)
-        
         video = self.get_object(pk)
+        if video.status != "ready":
+            return api_error("Video not ready for export", http_status=status.HTTP_400_BAD_REQUEST)
 
         serializer = ExportRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
