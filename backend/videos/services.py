@@ -135,11 +135,17 @@ def export_video_with_captions(export_job: ExportJob) -> ExportJob:
             command += ["-vf", f"subtitles='{subtitle_path}'"]
 
         command += [
+            "-map", "0:v:0",   # video stream
+            "-map", "0:a:0",   # audio stream 
+
             "-s", export_job.resolution,
             "-c:v", "libx264",
             "-preset", "medium",
             "-crf", "23",
+
             "-c:a", "aac",
+            "-b:a", "192k",    # better audio bitrate
+
             output_path,
         ]
 
