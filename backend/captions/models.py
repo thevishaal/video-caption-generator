@@ -2,7 +2,7 @@ from django.db import models
 from django.contrib.auth.models import User
 
 
-# 🎥 Video Model
+#  Video Model
 class Video(models.Model):
     STATUS_CHOICES = [
         ('uploaded', 'Uploaded'),
@@ -20,7 +20,7 @@ class Video(models.Model):
         return f"Video {self.id}"
 
 
-# 📝 Caption Model (🔥 तुम्हारा main task)
+#  Caption Model 
 class Caption(models.Model):
     video = models.ForeignKey(Video, on_delete=models.CASCADE, related_name="captions")
 
@@ -42,7 +42,7 @@ class Caption(models.Model):
         return f"Caption {self.id} (Video {self.video.id})"
 
 
-# 🎬 Export Job Model
+#  Export Job Model
 class ExportJob(models.Model):
     STATUS_CHOICES = [
         ('pending', 'Pending'),
