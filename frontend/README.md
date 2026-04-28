@@ -1,44 +1,16 @@
-# 🚀 Important Instructions for Frontend Team
+# React + Vite
 
-1. First, open the terminal inside the **frontend folder**.
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-2. If a `.venv` (virtual environment) is active, **deactivate it** before starting:
+Currently, two official plugins are available:
 
-   ```bash
-   deactivate
-   ```
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
 
-3. Create a new branch for frontend setup:
+## React Compiler
 
-   ```bash
-   git checkout -b feat/ui
-   ```
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
-4. Complete the **entire frontend project setup** on this branch.
+## Expanding the ESLint configuration
 
-5. Once setup is done, **inform the second developer**.
-
-6. The second developer should:
-
-   * Create a new branch from the **same frontend setup branch (feat/ui)**
-   * Use naming like:
-
-     ```bash
-     git checkout -b feat/your-feature-name
-     ```
-
-7. All future frontend features should be created **from the setup branch**, not directly from main.
-
----
-
-## ✅ Summary
-
-* Work starts in `frontend/` folder
-* Deactivate `.venv` if active
-* First branch: `feat/ui`
-* Other features: `feat/*` (created from `feat/ui`)
-* Do NOT work directly on main branch ❌
-
----
-
-💻 Follow this workflow to avoid conflicts and keep the project clean.
+If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.

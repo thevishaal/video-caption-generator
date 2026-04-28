@@ -11,7 +11,10 @@ from rest_framework.permissions import IsAuthenticated
 from .utils import generate_token
 from django.conf import settings
 from .utils import async_task, send_password_reset_email, send_verification_email
-
+from rest_framework.permissions import AllowAny
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
 
 
 class Home(APIView):
@@ -23,6 +26,8 @@ class Home(APIView):
 
 
 class RegisterView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         
@@ -41,6 +46,7 @@ class RegisterView(APIView):
     
 
 class VerifyEmailView(APIView):
+    permission_classes = [AllowAny]
     def get(self, request, token):
         if not token:
             return Response({
@@ -83,6 +89,7 @@ class VerifyEmailView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
 
 class ResendVerificationEmailView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         email = request.data.get("email")
 
@@ -126,6 +133,8 @@ class ResendVerificationEmailView(APIView):
 
 
 class LoginView(APIView):
+
+    permission_classes = [AllowAny]
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
 
@@ -136,6 +145,7 @@ class LoginView(APIView):
                 "data": serializer.validated_data
             }, status=status.HTTP_200_OK)
         
+        print("VALIDATION ERRORS:", serializer.errors)
         return Response({
             "success": False,   
             "errors": serializer.errors
@@ -263,6 +273,7 @@ class ChangePasswordView(APIView):
     
 
 class ForgotPasswordView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         serializer = ForgotPasswordSerializer(data=request.data)
 
@@ -300,6 +311,8 @@ class ForgotPasswordView(APIView):
         }, status=status.HTTP_400_BAD_REQUEST)
     
 class ResetPasswordView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request, token):
         serializer = ResetPasswordSerializer(data=request.data)
 
@@ -314,8 +327,8 @@ class ResetPasswordView(APIView):
                     return Response({
                         "success": False,
                         "message": "Reset token has expired."
-                    }, status=status.HTTP_400_BAD_REQUEST)
-                
+                    }, status=400)
+
                 user.set_password(new_password)
                 user.reset_password_token = None
                 user.reset_password_token_expiry = None
@@ -323,18 +336,20 @@ class ResetPasswordView(APIView):
 
                 return Response({
                     "success": True,
-                    "message": "Password reset successfully. You can now log in with your new password."
-                }, status=status.HTTP_200_OK)
+                    "message": "Password reset successfully."
+                })
+
             except User.DoesNotExist:
                 return Response({
                     "success": False,
                     "message": "Invalid reset token."
-                }, status=status.HTTP_400_BAD_REQUEST)
+                }, status=400)
+
+        print("ERRORS:", serializer.errors)  # 👈 debug
         return Response({
             "success": False,
             "errors": serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
+        }, status=400)
 
 
 
