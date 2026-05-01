@@ -78,6 +78,7 @@ class VideoPreviewView(APIView):
 
 
 class VideoExportView(APIView):
+    
     permission_classes = [IsAuthenticated, IsVideoOwner]
 
     def get_object(self, pk):
