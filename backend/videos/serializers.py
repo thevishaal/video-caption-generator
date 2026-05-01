@@ -32,26 +32,27 @@ class VideoUploadSerializer(serializers.ModelSerializer):
         return video
 
 
-class VideoListSerializer(serializers.ModelSerializer):
-    """Lightweight serializer for listing multiple videos."""
+# class VideoListSerializer(serializers.ModelSerializer):
+#     """Lightweight serializer for listing multiple videos."""
 
-    class Meta:
-        model = Video
-        fields = [
-            "id",
-            "title",
-            "original_filename",
-            "file_size",
-            "duration_seconds",
-            "language",
-            "status",
-            "created_at",
-        ]
+#     class Meta:
+#         model = Video
+#         fields = [
+#             "id",
+#             "title",
+#             "original_filename",
+#             "file_size",
+#             "duration_seconds",
+#             "language",
+#             "status",
+#             "created_at",
+#         ]
 
 
 class VideoPreviewSerializer(serializers.ModelSerializer):
     """Full detail serializer with an absolute preview URL."""
     preview_url = serializers.SerializerMethodField()
+    captions = serializers.SerializerMethodField()
 
     class Meta:
         model = Video
@@ -68,6 +69,7 @@ class VideoPreviewSerializer(serializers.ModelSerializer):
             "language",
             "status",
             "preview_url",
+            "captions",
             "created_at",
         ]
 
@@ -78,11 +80,23 @@ class VideoPreviewSerializer(serializers.ModelSerializer):
         url = obj.original_file.url
         return request.build_absolute_uri(url) if request else url
 
+    def get_captions(self, obj):
+        # Lazy import to avoid circular dependency
+        try:
+            from captions.serializers import CaptionSerializer
+            caps = obj.captions.all().order_by("start_time")
+            return CaptionSerializer(caps, many=True).data
+        except Exception:
+            return []
 
 class ExportRequestSerializer(serializers.Serializer):
     export_format = serializers.CharField(default="mp4")
     resolution = serializers.CharField(default="1280x720")
     language = serializers.CharField(default="en")
+    caption_mode = serializers.ChoiceField(
+        choices=["burned", "srt"],
+        default="burned"
+    )
 
     def validate_export_format(self, value):
         value = value.lower()

@@ -87,6 +87,10 @@ class ExportJob(TimeStampedModel):
         on_delete=models.CASCADE,
         related_name="requested_exports",
     )
+    CAPTION_MODE_BURNED = "burned"
+    CAPTION_MODE_SRT = "srt"
+    
+    caption_mode = models.CharField(max_length=20,choices=[("burned", "Burned-in"), ("srt", "Separate .SRT")],default="burned",)
     export_format = models.CharField(max_length=20, default="mp4")
     resolution = models.CharField(max_length=20, default="1280x720")
     language = models.CharField(max_length=20, default="en")

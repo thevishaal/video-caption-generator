@@ -6,8 +6,9 @@ from django.core.files import File
 from .models import ExportJob, Video
 from .utils import get_video_metadata, run_command, format_seconds_to_srt_time, extract_audio
 from .constants import (
-    VIDEO_STATUS_READY,
+    VIDEO_STATUS_PROCESSING,
     VIDEO_STATUS_FAILED,
+    VIDEO_STATUS_READY,
     EXPORT_STATUS_COMPLETED,
     EXPORT_STATUS_FAILED,
     EXPORT_STATUS_PROCESSING,
@@ -109,6 +110,11 @@ def export_video_with_captions(export_job: ExportJob) -> ExportJob:
     try:
         srt_path = build_srt_file(video=video, language=export_job.language)
         use_captions = True
+        if export_job.caption_mode == "srt" and srt_path:
+        # Save the SRT file as the output instead of burning it
+        # (or save both the video and srt)
+            use_captions = False  # don't burn into video
+            # separately attach the SRT to the export job
     except Exception:
         # No captions yet; export the raw video without subtitles
         use_captions = False
@@ -182,7 +188,6 @@ def export_video_with_captions(export_job: ExportJob) -> ExportJob:
                 pass
 
     return export_job
-
 
 # ---------------------------------------------------------------------------
 # Transcription pipeline (Groq Whisper)
