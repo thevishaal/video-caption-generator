@@ -2,8 +2,6 @@ import os
 import tempfile
 
 from django.core.files import File
-import requests
-from django.conf import settings
 
 from .models import ExportJob, Video
 from .utils import get_video_metadata, run_command, format_seconds_to_srt_time, extract_audio
@@ -197,6 +195,8 @@ def transcribe_video(video: Video) -> list[dict]:
       start, end, text
     The caller (captions app) is responsible for saving Caption records.
     """
+    import requests
+    from django.conf import settings
 
     audio_dir = tempfile.mkdtemp(prefix="audio_extract_")
     audio_path = os.path.join(audio_dir, f"{video.id}.wav")
@@ -249,7 +249,8 @@ def translate_caption_text(text: str, target_language: str) -> str:
     Translate a single caption string into target_language using Groq LLM.
     Returns the translated string.
     """
-
+    import requests
+    from django.conf import settings
 
     prompt = (
         f"Translate the following subtitle text into {target_language}. "

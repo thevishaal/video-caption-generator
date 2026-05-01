@@ -12,9 +12,6 @@ from .utils import generate_token
 from django.conf import settings
 from .utils import async_task, send_password_reset_email, send_verification_email
 from rest_framework.permissions import AllowAny
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
 
 
 class Home(APIView):
@@ -27,7 +24,6 @@ class Home(APIView):
 
 class RegisterView(APIView):
     permission_classes = [AllowAny]
-
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         
@@ -133,7 +129,6 @@ class ResendVerificationEmailView(APIView):
 
 
 class LoginView(APIView):
-
     permission_classes = [AllowAny]
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
@@ -153,6 +148,7 @@ class LoginView(APIView):
     
 
 class RefreshTokenView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         refresh_token = request.data.get('refresh_token')
 
@@ -195,6 +191,7 @@ class RefreshTokenView(APIView):
         
 
 class LogoutView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         refresh_token = request.data.get("refresh_token")
 
@@ -312,7 +309,6 @@ class ForgotPasswordView(APIView):
     
 class ResetPasswordView(APIView):
     permission_classes = [AllowAny]
-
     def post(self, request, token):
         serializer = ResetPasswordSerializer(data=request.data)
 

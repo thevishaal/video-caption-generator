@@ -103,4 +103,3 @@ class ExportJob(TimeStampedModel):
 
     def __str__(self):
         return f"ExportJob({self.video_id}, {self.status})"
-        
