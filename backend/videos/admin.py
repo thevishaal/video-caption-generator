@@ -28,4 +28,3 @@ class ExportJobAdmin(admin.ModelAdmin):
         "created_at",
     )
     list_filter = ("status", "export_format", "resolution", "created_at")
-    

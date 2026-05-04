@@ -12,4 +12,3 @@ class IsVideoOwner(BasePermission):
             return video.owner == request.user
 
         return False
-    

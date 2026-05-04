@@ -22,6 +22,11 @@ def upload_video_path(instance, filename):
     return f"videos/uploads/{instance.owner_id}/{uuid.uuid4()}_{safe_name}{ext}"
 
 
+def upload_audio_path(instance, filename):
+    # Stores the extracted WAV alongside the video under the same owner folder.
+    return f"videos/audio/{instance.owner_id}/{uuid.uuid4()}.wav"
+
+
 def export_video_path(instance, filename):
     ext = os.path.splitext(filename)[1].lower() or ".mp4"
     return f"videos/exports/{instance.video.owner_id}/{uuid.uuid4()}{ext}"
@@ -63,6 +68,20 @@ class Video(TimeStampedModel):
         max_length=20, choices=STATUS_CHOICES, default=VIDEO_STATUS_UPLOADED
     )
 
+    # -----------------------------------------------------------------------
+    # Extracted audio — saved to DB after upload so the captions app can read
+    # video.audio_file.path directly without re-running ffmpeg.
+    # Null/blank because extraction happens in a second step after save.
+    # -----------------------------------------------------------------------
+    audio_file = models.FileField(
+        upload_to=upload_audio_path,
+        null=True,
+        blank=True,
+        help_text="16 kHz mono WAV extracted from the original video. "
+                  "Populated by populate_video_metadata(). "
+                  "Used by the captions app for transcription.",
+    )
+
     class Meta:
         ordering = ["-created_at"]
 
@@ -78,6 +97,9 @@ class ExportJob(TimeStampedModel):
         (EXPORT_STATUS_FAILED, "Failed"),
     ]
 
+    CAPTION_MODE_BURNED = "burned"
+    CAPTION_MODE_SRT = "srt"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     video = models.ForeignKey(
         Video, on_delete=models.CASCADE, related_name="export_jobs"
@@ -86,6 +108,11 @@ class ExportJob(TimeStampedModel):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="requested_exports",
+    )
+    caption_mode = models.CharField(
+        max_length=20,
+        choices=[("burned", "Burned-in"), ("srt", "Separate .SRT")],
+        default="burned",
     )
     export_format = models.CharField(max_length=20, default="mp4")
     resolution = models.CharField(max_length=20, default="1280x720")
@@ -103,4 +130,3 @@ class ExportJob(TimeStampedModel):
 
     def __str__(self):
         return f"ExportJob({self.video_id}, {self.status})"
-        
