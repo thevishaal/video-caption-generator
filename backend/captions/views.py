@@ -1,83 +1,153 @@
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
+from django.http import FileResponse, Http404
+from django.shortcuts import get_object_or_404
+
 from rest_framework import status
-from .models import Caption
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+from rest_framework.response import Response
 
-import whisper
-from googletrans import Translator
-from decouple import config
-import os
+from .models import Video, ExportJob, Caption
+from .permissions import IsVideoOwner
+from .serializers import (
+    VideoUploadSerializer,
+    VideoPreviewSerializer,
+    ExportRequestSerializer,
+    ExportJobSerializer,
+    CaptionSerializer,
+)
+from .services import populate_video_metadata, export_video_with_captions
 
-# Load from .env
-model_name = config('WHISPER_MODEL', default='base')
-model = whisper.load_model(model_name)
 
-translator = Translator()
-
-
-# 🎬 Generate Captions
-@api_view(['POST'])
-def generate_captions(request):
-    video = request.FILES.get('video')
-
-    if not video:
-        return Response({"error": "Video required"}, status=400)
-
-    file_path = f"media/{video.name}"
-
-    # Save file
-    with open(file_path, "wb+") as f:
-        for chunk in video.chunks():
-            f.write(chunk)
-
-    # AI Caption
-    result = model.transcribe(file_path)
-
-    caption = Caption.objects.create(
-        video=video,
-        text=result['text']
-    )
-
+#  Common Response
+def api_success(data=None, message="Success", http_status=status.HTTP_200_OK):
     return Response({
-        "id": caption.id,
-        "caption": result['text']
-    })
+        "success": True,
+        "data": data if data else {},
+        "message": message
+    }, status=http_status)
 
 
-# 🌍 Translate
-@api_view(['POST'])
-def translate_captions(request):
-    text = request.data.get('text')
-    lang = request.data.get('lang', 'hi')
-
-    if not text:
-        return Response({"error": "Text required"}, status=400)
-
-    translated = translator.translate(text, dest=lang)
-
+def api_error(message="Error", data=None, http_status=status.HTTP_400_BAD_REQUEST):
     return Response({
-        "translated_text": translated.text
-    })
+        "success": False,
+        "data": data if data else {},
+        "message": message
+    }, status=http_status)
 
 
-# 🎨 Style
-@api_view(['PUT'])
-def style_captions(request):
-    text = request.data.get('text')
-    style = request.data.get('style')
+#  Upload Video
+class VideoUploadView(APIView):
+    permission_classes = [IsAuthenticated]
 
-    if not text or not style:
-        return Response({"error": "Text & style required"}, status=400)
+    def post(self, request):
+        serializer = VideoUploadSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
 
-    if style == "upper":
-        styled = text.upper()
-    elif style == "lower":
-        styled = text.lower()
-    elif style == "title":
-        styled = text.title()
-    else:
-        styled = text
+        video = serializer.save(owner=request.user)
 
-    return Response({
-        "styled_text": styled
-    })
+        try:
+            populate_video_metadata(video)
+        except Exception:
+            video.status = "uploaded"
+            video.save()
+
+        data = VideoPreviewSerializer(video).data
+        return api_success(data, "Video uploaded successfully", status.HTTP_201_CREATED)
+
+
+#  Preview Video
+class VideoPreviewView(APIView):
+    permission_classes = [IsAuthenticated, IsVideoOwner]
+
+    def get(self, request, pk):
+        video = get_object_or_404(Video, pk=pk)
+        self.check_object_permissions(request, video)
+
+        data = VideoPreviewSerializer(video).data
+        return api_success(data, "Video fetched successfully")
+
+
+#  Create Caption 
+class CaptionCreateView(APIView):
+    permission_classes = [IsAuthenticated, IsVideoOwner]
+
+    def post(self, request, pk):
+        video = get_object_or_404(Video, pk=pk)
+        self.check_object_permissions(request, video)
+
+        serializer = CaptionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        serializer.save(video=video)
+
+        return api_success(serializer.data, "Caption added successfully")
+
+
+#  Get Captions
+class CaptionListView(APIView):
+    permission_classes = [IsAuthenticated, IsVideoOwner]
+
+    def get(self, request, pk):
+        video = get_object_or_404(Video, pk=pk)
+        self.check_object_permissions(request, video)
+
+        captions = video.captions.all()
+        data = CaptionSerializer(captions, many=True).data
+
+        return api_success(data, "Captions fetched")
+
+
+#  Export Video
+class VideoExportView(APIView):
+    permission_classes = [IsAuthenticated, IsVideoOwner]
+
+    def post(self, request, pk):
+        video = get_object_or_404(Video, pk=pk)
+        self.check_object_permissions(request, video)
+
+        if video.status != "ready":
+            return api_error("Video not ready", http_status=400)
+
+        serializer = ExportRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        export_job = ExportJob.objects.create(
+            video=video,
+            requested_by=request.user,
+            export_format=serializer.validated_data["export_format"],
+            resolution=serializer.validated_data["resolution"],
+            language=serializer.validated_data["language"],
+            status="processing"
+        )
+
+        try:
+            #  MAIN FUNCTION (तुम्हारा काम)
+            export_video_with_captions(export_job)
+        except Exception as e:
+            export_job.status = "failed"
+            export_job.save()
+            return api_error(str(e), http_status=500)
+
+        data = ExportJobSerializer(export_job).data
+        return api_success(data, "Video exported successfully")
+
+
+# ⬇Download Video
+class VideoDownloadView(APIView):
+    permission_classes = [IsAuthenticated, IsVideoOwner]
+
+    def get(self, request, pk):
+        job = ExportJob.objects.filter(
+            video_id=pk,
+            requested_by=request.user,
+            status="completed"
+        ).last()
+
+        if not job or not job.output_file:
+            raise Http404("File not found")
+
+        return FileResponse(
+            job.output_file.open("rb"),
+            as_attachment=True,
+            filename=job.output_file.name.split("/")[-1]
+        )
