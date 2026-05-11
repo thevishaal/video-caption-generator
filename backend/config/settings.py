@@ -15,12 +15,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-&lnuvua4c$*!4aul+&&!@vc&-#m6fh!4vs-_8w3wl(+8t$%f-%'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'false') == 'true'
+DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
 
 ALLOWED_HOSTS = ['*']
-
-
-DEBUG = True
 
 
 # Application definition
@@ -28,6 +25,9 @@ DEBUG = True
 INSTALLED_APPS = [
     "corsheaders",
     'rest_framework',
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
+
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -90,6 +90,10 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+ 
+# Optional — override translation model (default: llama3-70b-8192)
+GROQ_TRANSLATION_MODEL = "llama3-70b-8192"
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
@@ -101,8 +105,8 @@ if not DEBUG:
             'NAME': os.getenv('DB_NAME'),
             'USER': os.getenv('DB_USER'),
             'PASSWORD': os.getenv('DB_PASSWORD'),
-            'HOST': os.getenv('DB_HOST'),
-            'PORT': os.getenv('DB_PORT'),
+            'HOST': os.getenv('DB_HOST','localhost'),
+            'PORT': os.getenv('DB_PORT', '5432'),
         }
     }
 
@@ -158,6 +162,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
 DOMAIN_NAME = os.getenv('DOMAIN_NAME', 'http://localhost:8000')
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOWED_ORIGINS = [
     FRONTEND_URL,
 ]

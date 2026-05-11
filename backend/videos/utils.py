@@ -118,4 +118,3 @@ def format_seconds_to_srt_time(seconds: float) -> str:
 def ensure_directory(path: str) -> None:
     """Create directory if it doesn't exist."""
     os.makedirs(path, exist_ok=True)
-    
