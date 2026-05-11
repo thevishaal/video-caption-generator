@@ -302,22 +302,31 @@ const Captions = () => {
   const activeSegment = segments.find((s) => s.id === activeSegmentId);
 
    // ── Subtitle overlay position ───────────────────────────────────────────────
-  const getPositionStyle = () => {
-    // Cleaned up map: pure absolute positioning for the container, and text alignment for the text.
-    const map = {
-      "top-left":     { top: "12px", left: "12px", textAlign: "left" },
-      "top-center":   { top: "12px", left: "8%", textAlign: "center" },
-      "top-right":    { top: "12px", right: "12px", textAlign: "right" },
-      "bottom-left":  { bottom: "16px", left: "12px", textAlign: "left" },
-      "bottom-center":{ bottom: "16px", left: "8%", textAlign: "center" },
-      "bottom-right": { bottom: "16px", right: "12px", textAlign: "right" },
-    };
-    return map[styles.position] || map["bottom-center"];
+ // ── 1. Subtitle overlay position mapping ──────────────────────────────────────
+const getPositionStyle = () => {
+  // We use Flexbox alignment on a full-size overlay wrapper.
+  // alignItems handles vertical (top/bottom), justifyContent handles horizontal (left/center/right).
+  const map = {
+    "top-left":      { alignItems: "flex-start", justifyContent: "flex-start", textAlign: "left" },
+    "top-center":    { alignItems: "flex-start", justifyContent: "center",     textAlign: "center" },
+    "top-right":     { alignItems: "flex-start", justifyContent: "flex-end",   textAlign: "right" },
+    "bottom-left":   { alignItems: "flex-end",   justifyContent: "flex-start", textAlign: "left" },
+    "bottom-center": { alignItems: "flex-end",   justifyContent: "center",     textAlign: "center" },
+    "bottom-right":  { alignItems: "flex-end",   justifyContent: "flex-end",   textAlign: "right" },
   };
+  return map[styles.position] || map["bottom-center"];
+};
 
-  const posStyle = getPositionStyle();
-  // Separate the container positioning from the text alignment
-  const { textAlign, ...containerStyle } = posStyle;
+const posStyle = getPositionStyle();
+
+// Parse HEX background color safely
+const parseColor = (hex, opacity) => {
+  if (!hex || hex.length < 7) return "rgba(0,0,0,0.7)";
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${opacity / 100})`;
+};
 
   // ── Apply Changes ─────────────────────────────────────────────────────────
   const handleApplyChanges = async () => {
@@ -588,41 +597,42 @@ const Captions = () => {
                 onLoadedMetadata={handleLoadedMetadata}
               />
 
-              {/* Subtitle overlay — positioned absolutely inside the video box */}
-      {activeSegment && (
-        <div
-          key={activeSegment.id}
-          className="subtitle-animate absolute pointer-events-none"
-          style={{
-            ...containerStyle, // Only applies top, bottom, left, right, and transform
-            maxWidth: "85%",
-            width: "max-content", // Ensures the box only wraps the text, rather than stretching
-          }}
-        >
-          <div
-            className="rounded-lg px-3 py-1.5 shadow-lg"
-            style={{
-              backgroundColor: `rgba(${parseInt(styles.bgColor.slice(1, 3), 16)}, ${parseInt(styles.bgColor.slice(3, 5), 16)}, ${parseInt(styles.bgColor.slice(5, 7), 16)}, ${styles.bgOpacity / 100})`,
-            }}
-          >
-            <p
-              className="leading-snug break-words"
-              style={{
-                color: styles.textColor,
-                fontFamily: styles.typography,
-                fontWeight: styles.isBold ? "700" : "400",
-                fontStyle: styles.isItalic ? "italic" : "normal",
-                textTransform: styles.isCaps ? "uppercase" : "none",
-                fontSize: `clamp(10px, ${styles.fontSize / 16}vw + 6px, ${styles.fontSize}px)`,
-                textAlign: textAlign, // Text alignment handled here cleanly
-              }}
-            >
-              {activeSegment.text}
-            </p>
-          </div>
-        </div>
-      )}
-
+   {/* Subtitle overlay — positioned absolutely covering the entire video box */}
+{activeSegment && (
+  <div
+    key={activeSegment.id}
+    /* Added 'inset-0 flex p-4' to cover the video area and pad the edges */
+    className="absolute inset-0 flex p-4 pointer-events-none subtitle-animate"
+    style={{
+      alignItems: posStyle.alignItems,
+      justifyContent: posStyle.justifyContent,
+    }}
+  >
+    {/* This is the actual caption box that respects the flex alignment */}
+    <div
+      className="rounded-lg px-3 py-1.5 shadow-lg pointer-events-auto"
+      style={{
+        maxWidth: "85%",
+        backgroundColor: parseColor(styles.bgColor, styles.bgOpacity),
+      }}
+    >
+      <p
+        className="leading-snug break-words"
+        style={{
+          color: styles.textColor,
+          fontFamily: styles.typography,
+          fontWeight: styles.isBold ? "700" : "400",
+          fontStyle: styles.isItalic ? "italic" : "normal",
+          textTransform: styles.isCaps ? "uppercase" : "none",
+          fontSize: `clamp(10px, ${styles.fontSize / 16}vw + 6px, ${styles.fontSize}px)`,
+          textAlign: posStyle.textAlign,
+        }}
+      >
+        {activeSegment.text}
+      </p>
+    </div>
+  </div>
+)}
 
               {/* Play/pause overlay icon (brief flash) */}
             </div>
