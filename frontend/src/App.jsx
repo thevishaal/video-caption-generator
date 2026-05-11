@@ -55,10 +55,10 @@ const App = () => {
           <Route path="/editor" element={<Editor />}>
             <Route path="/editor" element={<Upload />} />
             <Route path="/editor/upload" element={<Upload />} />
-            <Route path="/editor/upload/captions" element={<Captions />} />
-            <Route path="/editor/upload/captions/translate" element={<Translate />} />
-            <Route path="/editor/upload/captions/translate/preview" element={<Preview />} />
-            <Route path="/editor/upload/captions/translate/preview/export" element={<Export />} />
+            <Route path="/editor/upload/captions/:videoId" element={<Captions />} />
+            <Route path="/editor/upload/captions/translate/:videoId" element={<Translate />} />
+            <Route path="/editor/upload/captions/translate/preview/:videoId" element={<Preview />} />
+            <Route path="/editor/upload/captions/translate/preview/export/:videoId" element={<Export />} />
           </Route>
 
           </Route>

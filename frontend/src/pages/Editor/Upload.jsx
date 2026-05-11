@@ -42,7 +42,6 @@ const Upload = () => {
           "Content-Type": "multipart/form-data",
           Authorization: `Bearer ${token}`,
         },
-        // Added progress tracking for the UI bar
         onUploadProgress: (progressEvent) => {
           if (progressEvent.total) {
             const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -51,17 +50,28 @@ const Upload = () => {
         },
       });
 
-      const VideoId = res.data?.data?.id || res.data?.id;
+      const videoId = res.data?.video_id || res.data?.data?.id || res.data?.id;
 
-      if (VideoId) {
-        // Wait a brief moment to show 100% completion before routing
-        setTimeout(() => {
-          navigate(`/editor/upload/captions/translate/preview/${VideoId}`);
-        }, 800);
-      } else {
-        setMessage("Upload worked, but backend didn't return an ID.");
-        setLoading(false);
-      }
+const videoUrl =
+  res.data?.preview_url ||
+  res.data?.data?.preview_url ||
+  URL.createObjectURL(fileToUpload);
+
+console.log("Upload Response:", res.data);
+
+if (videoId) {
+  setTimeout(() => {
+    navigate(`/editor/upload/captions/${videoId}`, {
+      state: {
+        videoId,
+        videoUrl,
+      },
+    });
+  }, 800);
+} else {
+  setMessage("Upload worked, but backend didn't return video_id.");
+  setLoading(false);
+}
     } catch (err) {
       console.error(err);
       setMessage(err.response?.data?.message || "Upload failed. Please try again.");
