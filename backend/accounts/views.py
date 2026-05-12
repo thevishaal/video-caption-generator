@@ -22,13 +22,17 @@ class Home(APIView):
         }, status=status.HTTP_200_OK)
 
 
+
+
 class RegisterView(APIView):
     permission_classes = [AllowAny]
+
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
-        
+
         if serializer.is_valid():
             serializer.save()
+
             return Response({
                 "success": True,
                 "message": "User registered successfully. Please check your email for verification.",
@@ -41,90 +45,69 @@ class RegisterView(APIView):
         }, status=status.HTTP_400_BAD_REQUEST)
     
 
+
+# ─── Verify Email ───────────────────────────────────────────────────────────
 class VerifyEmailView(APIView):
     permission_classes = [AllowAny]
+
     def get(self, request, token):
         if not token:
-            return Response({
-                "success": False,
-                "message": "Verification token is required."
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
+            return Response({"success": False, "message": "Verification token is required."}, status=status.HTTP_400_BAD_REQUEST)
+
         hashed_token = hashlib.sha256(token.encode()).hexdigest()
 
         try:
             user = User.objects.get(verification_token=hashed_token)
 
             if user.verification_token_expiry < timezone.now():
-                return Response({
-                    "success": False,
-                    "message": "Verification token has expired."
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
+                return Response({"success": False, "message": "Verification token has expired."}, status=status.HTTP_400_BAD_REQUEST)
+
             if user.is_verified:
-                return Response({
-                    "success": False,
-                    "message": "Email is already verified."
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
+                return Response({"success": False, "message": "Email is already verified."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Mark verified
             user.is_verified = True
             user.is_active = True
             user.verification_token = None
             user.verification_token_expiry = None
             user.save()
 
-            return Response({
-                "success": True,
-                "message": "Email verified successfully. You can now log in."
-            }, status=status.HTTP_200_OK)
-        
-        except User.DoesNotExist:
-            return Response({
-                "success": False,
-                "message": "Invalid verification token."
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"success": True, "message": "Email verified successfully. You can now log in."}, status=status.HTTP_200_OK)
 
+        except User.DoesNotExist:
+            return Response({"success": False, "message": "Invalid verification token."}, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ─── Resend Verification Email ───────────────────────────────────────────────
 class ResendVerificationEmailView(APIView):
     permission_classes = [AllowAny]
+
     def post(self, request):
         email = request.data.get("email")
-
         if not email:
-            return Response({
-                "success": False,
-                "message": "Email is required."
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"success": False, "message": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             user = User.objects.get(email=email)
 
             if user.is_verified:
-                return Response({
-                    "success": False,
-                    "message": "Email is already verified."
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"success": False, "message": "Email is already verified."}, status=status.HTTP_400_BAD_REQUEST)
 
+            # Generate new token
             raw_token, hashed_token = generate_token()
             user.verification_token = hashed_token
             user.verification_token_expiry = timezone.now() + timedelta(minutes=10)
             user.save()
 
+            # Send verification email
             verification_link = f"{settings.FRONTEND_URL}/verify-email/{raw_token}"
-            async_task(send_verification_email, user.email, verification_link)  
-
+            send_verification_email(user.email, verification_link)
             print(f"Verification token for {user.email}: {raw_token}")
 
-            return Response({
-                "success": True,
-                "message": "Verification email resent. Please check your inbox."
-            }, status=status.HTTP_200_OK)
+            return Response({"success": True, "message": "Verification email resent. Please check your inbox."}, status=status.HTTP_200_OK)
 
         except User.DoesNotExist:
-            return Response({
-                "success": False,
-                "message": "No user found with this email."
-            }, status=status.HTTP_404_NOT_FOUND)
-     
+            return Response({"success": False, "message": "No user found with this email."}, status=status.HTTP_404_NOT_FOUND)
 
 
 

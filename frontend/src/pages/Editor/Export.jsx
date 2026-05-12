@@ -1,149 +1,317 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useParams } from "react-router-dom";
 
-// --- MOCK API SERVICE ---
-const fetchExportData = async () => {
-  // Simulating a 1-second network request to your backend
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        video: {
-          name: 'Summer_Vlog_Final_02.mp4',
-          thumbnailUrl: 'https://images.unsplash.com/photo-1516541196182-6bdb0516ed27?q=80&w=800&auto=format&fit=crop', // Example Thumbnail
-          duration: '04:32',
-          fps: '24fps'
-        },
-        resolutions: [
-          { id: '720p', label: '720p', subLabel: 'HD Ready', sizeMultiplier: 0.6 },
-          { id: '1080p', label: '1080p', subLabel: 'FULL HD', recommended: true, sizeMultiplier: 1.0 },
-          { id: '4K', label: '4K', subLabel: 'Ultra HD', sizeMultiplier: 2.8 },
-        ],
-        formats: [
-          { id: 'MP4', label: 'MP4', subLabel: 'H.264 HIGH', baseSizeMB: 842.4 },
-          { id: 'MOV', label: 'MOV', subLabel: 'PRORES 422', baseSizeMB: 1450.2 },
-        ],
-        captionModes: [
-          { id: 'Burned-in', label: 'Burned-in', description: 'Permanent on video', icon: 'fa-closed-captioning' },
-          { id: 'Separate .SRT', label: 'Separate .SRT', description: 'Sidecar file for web', icon: 'fa-file-lines' },
-        ],
-        details: {
-          codec: 'H.264 (AVC)',
-          colorSpace: 'Rec. 709',
-          projectLink: 'https://athenura.app/v/smr-vlg-02'
-        }
-      });
-    }, 1000);
+// ─────────────────────────────────────────────────────────────────────────────
+// API LAYER  — all network calls live here, nothing else touches fetch()
+// ─────────────────────────────────────────────────────────────────────────────
+
+const API_BASE = 'http://127.0.0.1:8000/api';   // adjust to match your actual base path
+
+function authHeaders() {
+  const token =
+    localStorage.getItem('token') ||
+    sessionStorage.getItem('token') ||
+    '';
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+async function apiFetch(path, options = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: { ...authHeaders(), ...(options.headers || {}) },
   });
+
+  const text = await res.text();
+  console.log(text);
+
+  const json = JSON.parse(text);
+
+  if (!res.ok || json.success === false) {
+    throw new Error(json.message || `HTTP ${res.status}`);
+  }
+
+  return json.data;
+}
+// GET  /api/videos/:id/preview/
+const fetchVideoPreview = (videoId) =>
+  apiFetch(`/videos/${videoId}/preview/`);
+
+// POST /api/videos/:id/export/  → returns ExportJob
+const startVideoExport = (videoId, payload) =>
+  apiFetch(`/videos/${videoId}/export/`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+// GET  /api/videos/:videoId/export/:exportId/status/
+const fetchExportStatus = (videoId, exportId) =>
+  apiFetch(`/videos/${videoId}/export/${exportId}/status/`);
+
+// GET  /api/videos/:id/download/  (streams the exported file)
+const buildVideoDownloadUrl = (videoId) =>
+  `${API_BASE}/videos/${videoId}/download/`;
+
+// GET  /api/captions/videos/:videoId/download-srt?language=…
+const buildSrtDownloadUrl = (videoId, language = 'en') =>
+  `${API_BASE}/captions/videos/${videoId}/download-srt?language=${language}`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATIC UI OPTIONS  — zero mock data here, only labels / IDs
+// ─────────────────────────────────────────────────────────────────────────────
+
+const RESOLUTIONS = [
+  { id: '854x480',   label: '480p',  subLabel: 'SD'       },
+  { id: '1280x720',  label: '720p',  subLabel: 'HD Ready' },
+  { id: '1920x1080', label: '1080p', subLabel: 'Full HD'  },
+  { id: '3840x2160', label: '4K',    subLabel: 'Ultra HD' },
+];
+
+const FORMATS = [
+  { id: 'mp4', label: 'MP4', subLabel: 'H.264 HIGH' },
+  { id: 'mov', label: 'MOV', subLabel: 'PRORES 422'  },
+];
+
+const CAPTION_MODES = [
+  { id: 'Burned-in',     label: 'Burned-in',    description: 'Permanent on video',    icon: 'fa-closed-captioning' },
+  { id: 'Separate .SRT', label: 'Separate .SRT', description: 'Sidecar file for web', icon: 'fa-file-lines'        },
+];
+
+// ── Rough client-side size estimate for UX only (not authoritative) ──────────
+const SIZE_MULTIPLIERS = {
+  '854x480':   0.35,
+  '1280x720':  0.60,
+  '1920x1080': 1.00,
+  '3840x2160': 2.80,
 };
+const FORMAT_BASE_MB = { mp4: 842, mov: 1450 };
 
-const Export = () => {
-  // --- DATA STATE ---
-  const [data, setData] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+function estimateSize(formatId, resolutionId, isSrt) {
+  if (isSrt) return '~12 KB';
+  const base = FORMAT_BASE_MB[formatId] ?? 842;
+  const mult = SIZE_MULTIPLIERS[resolutionId] ?? 1.0;
+  const mb   = base * mult;
+  return mb >= 1024
+    ? `${(mb / 1024).toFixed(1)} GB`
+    : `${Math.round(mb)} MB`;
+}
 
-  // --- SELECTION STATE ---
-  const [selectedRes, setSelectedRes] = useState('1080p');
-  const [selectedFormat, setSelectedFormat] = useState('MP4');
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Props
+ *   videoId   {string}  UUID of the video to export  (required)
+ *   language  {string}  caption language code         (default "en")
+ */
+const Export = ({language = 'en' }) => {
+  const { videoId } = useParams();
+
+  // ── Video data from backend ──────────────────────────────────────────────
+  const [videoData,  setVideoData]  = useState(null);
+  const [isLoading,  setIsLoading]  = useState(true);
+  const [loadError,  setLoadError]  = useState(null);
+
+  // ── User selections ──────────────────────────────────────────────────────
+  const [selectedRes,         setSelectedRes]         = useState('1920x1080');
+  const [selectedFormat,      setSelectedFormat]      = useState('mp4');
   const [selectedCaptionMode, setSelectedCaptionMode] = useState('Burned-in');
 
-  // --- PROGRESS STATE ---
-  const [exportStatus, setExportStatus] = useState('idle'); // 'idle', 'rendering', 'complete'
-  const [progress, setProgress] = useState(0);
+  // ── Export-job state ─────────────────────────────────────────────────────
+  // phase: 'idle' | 'submitting' | 'rendering' | 'complete' | 'failed'
+  const [exportPhase,   setExportPhase]   = useState('idle');
+  const [progress,      setProgress]      = useState(0);
   const [estimatedTime, setEstimatedTime] = useState('--:--');
+  const [exportJobId,   setExportJobId]   = useState(null);
+  const [errorMessage,  setErrorMessage]  = useState('');
 
-  // 1. Fetch Initial Data
+  const pollTimerRef     = useRef(null);
+  const progressTimerRef = useRef(null);
+
+  const isSrt = selectedCaptionMode === 'Separate .SRT';
+
+  // ── 1. Fetch video preview on mount ─────────────────────────────────────
   useEffect(() => {
-    fetchExportData().then((fetchedData) => {
-      setData(fetchedData);
+    if (!videoId) {
+      setLoadError('No videoId provided.');
       setIsLoading(false);
-    });
+      return;
+    }
+    fetchVideoPreview(videoId)
+      .then((data) => { setVideoData(data); setIsLoading(false); })
+      .catch((err)  => { setLoadError(err.message); setIsLoading(false); });
+  }, [videoId]);
+
+  // ── 2. Cleanup timers on unmount ─────────────────────────────────────────
+  useEffect(() => () => {
+    clearInterval(pollTimerRef.current);
+    clearInterval(progressTimerRef.current);
   }, []);
 
-  // 2. Dynamic Size Calculation
-  const calculateEstimatedSize = () => {
-    if (!data) return '0 MB';
-    const format = data.formats.find(f => f.id === selectedFormat);
-    const resolution = data.resolutions.find(r => r.id === selectedRes);
-    
-    // If downloading just SRT, the size is tiny (mocked to KB)
-    if (selectedCaptionMode === 'Separate .SRT') {
-      return '12.4 KB';
-    }
-    
-    const size = (format.baseSizeMB * resolution.sizeMultiplier).toFixed(1);
-    return `${size} MB`;
-  };
-
-  // 3. Handle Export / Download Process
-  const handleExport = () => {
-    setExportStatus('rendering');
-    setProgress(0);
-    
-    // Total simulated rendering time: ~10 seconds (faster if just SRT)
-    const totalSeconds = selectedCaptionMode === 'Separate .SRT' ? 2 : 10; 
-    let currentSecond = 0;
-
-    const timer = setInterval(() => {
-      currentSecond += 0.5; // Update every 500ms
-      const currentProgress = Math.min(100, Math.floor((currentSecond / totalSeconds) * 100));
-      
-      setProgress(currentProgress);
-
-      const secondsRemaining = Math.max(0, totalSeconds - currentSecond);
-      const m = Math.floor(secondsRemaining / 60);
-      const s = Math.floor(secondsRemaining % 60);
+  // ── 3. Smooth fake-progress while polling ─────────────────────────────────
+  const startProgressAnimation = () => {
+    progressTimerRef.current = setInterval(() => {
+      setProgress((p) => (p < 88 ? p + Math.random() * 2.5 : p));
+      const secs = Math.floor(Math.random() * 40 + 5);
+      const m = Math.floor(secs / 60);
+      const s = secs % 60;
       setEstimatedTime(`0${m}:${s.toString().padStart(2, '0')}`);
+    }, 800);
+  };
 
-      if (currentProgress >= 100) {
-        clearInterval(timer);
-        setExportStatus('complete');
-        setEstimatedTime('Ready');
-        
-        // Trigger simulated file download
-        setTimeout(() => triggerNativeDownload(), 500);
+  // ── 4. Poll export-job status ─────────────────────────────────────────────
+  const startPolling = useCallback((jobId) => {
+    pollTimerRef.current = setInterval(async () => {
+      try {
+        const job = await fetchExportStatus(videoId, jobId);
+        if (job.status === 'completed') {
+          clearInterval(pollTimerRef.current);
+          clearInterval(progressTimerRef.current);
+          setProgress(100);
+          setEstimatedTime('Ready');
+          setExportPhase('complete');
+        } else if (job.status === 'failed') {
+          clearInterval(pollTimerRef.current);
+          clearInterval(progressTimerRef.current);
+          setErrorMessage(job.error_message || 'Export failed on the server.');
+          setExportPhase('failed');
+        }
+        // status === 'processing' → keep polling
+      } catch {
+        // transient network hiccup — keep polling
       }
-    }, 500);
-  };
+    }, 2000);
+  }, [videoId]);
 
-  // 4. SMART DOWNLOAD LOGIC (Generates SRT or MP4 based on selection)
-  const triggerNativeDownload = () => {
-    let content, filename, mimeType;
+  // ── 5. Kick off export ────────────────────────────────────────────────────
+  const handleExport = async () => {
+    setExportPhase('submitting');
+    setProgress(0);
+    setEstimatedTime('--:--');
+    setErrorMessage('');
 
-    const baseName = data.video.name.replace('.mp4', '');
+    try {
+      const job = await startVideoExport(videoId, {
+        export_format: isSrt ? 'srt' : selectedFormat,
+        resolution:    selectedRes,
+        language,
+        caption_mode: isSrt ? "srt" : "burned",
+      });
 
-    if (selectedCaptionMode === 'Separate .SRT') {
-      // Mock SRT File Structure
-      content = `1\n00:00:02,000 --> 00:00:05,000\nIn this lesson, we will explore the boundaries of modern design.\n\n2\n00:00:05,500 --> 00:00:08,000\nFluidity is key to achieving a truly professional interface.\n\n3\n00:00:08,500 --> 00:00:12,000\nLet's look at how we can manipulate space and light.\n`;
-      filename = `${baseName}_captions.srt`;
-      mimeType = 'text/plain'; // Browsers download SRTs via text/plain blobs
-    } else {
-      // Mock Video File Structure
-      content = `MOCK VIDEO DATA (Burned-in Captions)\nName: ${data.video.name}\nResolution: ${selectedRes}\nFormat: ${selectedFormat}`;
-      filename = `${baseName}_${selectedRes}.${selectedFormat.toLowerCase()}`;
-      mimeType = 'video/mp4'; 
+      setExportJobId(job.id);
+      setExportPhase('rendering');
+      setProgress(5);
+      startProgressAnimation();
+      startPolling(job.id);
+    } catch (err) {
+      setErrorMessage(err.message);
+      setExportPhase('failed');
     }
-
-    const blob = new Blob([content], { type: mimeType });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
-    window.URL.revokeObjectURL(url);
   };
 
-  if (isLoading || !data) {
+  // ── 6. Download the exported file ─────────────────────────────────────────
+  const handleDownload = async () => {
+    const url = isSrt
+      ? buildSrtDownloadUrl(videoId, language)
+      : buildVideoDownloadUrl(videoId);
+
+    const token =
+      localStorage.getItem('token') ||
+      sessionStorage.getItem('token') ||
+      '';
+
+    try {
+      const res  = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
+      const blob = await res.blob();
+      const name = isSrt
+        ? `captions_${videoId}_${language}.srt`
+        : `${videoData?.title || videoId}_${selectedRes}.${selectedFormat}`;
+
+      const href = window.URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = href; a.download = name; a.click();
+      window.URL.revokeObjectURL(href);
+    } catch (err) {
+      setErrorMessage(err.message);
+    }
+  };
+
+  // ── 7. Reset ──────────────────────────────────────────────────────────────
+  const handleReset = () => {
+    clearInterval(pollTimerRef.current);
+    clearInterval(progressTimerRef.current);
+    setExportPhase('idle');
+    setProgress(0);
+    setEstimatedTime('--:--');
+    setExportJobId(null);
+    setErrorMessage('');
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // DERIVED DISPLAY VALUES  — sourced entirely from real videoData
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const formatDuration = (secs) => {
+    if (!secs) return '--:--';
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const displayName     = videoData?.title
+    || videoData?.original_file?.split('/').pop()
+    || '—';
+  const displayDuration = formatDuration(videoData?.duration);
+  const displayFps      = videoData?.fps    ? `${Math.round(videoData.fps)}fps` : '—';
+  const displayCodec    = videoData?.codec  || '—';
+  const thumbnailUrl    = videoData?.thumbnail_url || null;
+  const estimatedSize   = estimateSize(selectedFormat, selectedRes, isSrt);
+  const selectedResLabel = RESOLUTIONS.find((r) => r.id === selectedRes)?.label ?? selectedRes;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // LOADING / ERROR SCREENS
+  // ─────────────────────────────────────────────────────────────────────────
+
+  if (isLoading) {
     return (
       <div className="w-full min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center">
-        <i className="fa-solid fa-circle-notch fa-spin text-4xl text-[#128189] mb-4"></i>
-        <h2 className="text-brand-navy font-bold text-lg animate-pulse">Loading Export Settings...</h2>
+        <i className="fa-solid fa-circle-notch fa-spin text-4xl text-[#128189] mb-4" />
+        <h2 className="text-[#111827] font-bold text-lg animate-pulse">
+          Loading Export Settings…
+        </h2>
       </div>
     );
   }
 
+  if (loadError) {
+    return (
+      <div className="w-full min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center gap-3">
+        <i className="fa-solid fa-triangle-exclamation text-4xl text-red-500" />
+        <p className="text-[#111827] font-semibold text-base">{loadError}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="mt-2 px-5 py-2 bg-[#0C4E5E] text-white rounded-xl text-sm font-bold hover:bg-[#093c48] transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // MAIN RENDER  (structure + class names preserved from original Export.jsx)
+  // ─────────────────────────────────────────────────────────────────────────
+
   return (
     <div className="w-full min-h-screen bg-[#F8FAFC] p-4 md:p-8 lg:p-12 font-sans overflow-x-hidden flex flex-col">
-      
-      {/* --- HEADER SECTION --- */}
+
+      {/* ── HEADER ── */}
       <div className="mb-8 md:mb-10 animate-fade-in">
         <h1 className="text-2xl md:text-3xl font-bold text-[#111827] mb-2 tracking-tight">
           Finalizing Your Export
@@ -154,22 +322,28 @@ const Export = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8 items-start">
-        
-        {/* =========================================
-            LEFT COLUMN: SETTINGS (Takes up 2/3 width)
-            ========================================= */}
-        <div className="lg:col-span-2 flex flex-col gap-6 md:gap-8 animate-slide-up" style={{ animationDelay: '0.1s' }}>
-          
-          {/* Video Resolution */}
+
+        {/* ════════════════════════════════════════════════════════════════
+            LEFT COLUMN — settings  (2 / 3 width)
+            ════════════════════════════════════════════════════════════════ */}
+        <div
+          className="lg:col-span-2 flex flex-col gap-6 md:gap-8 animate-slide-up"
+          style={{ animationDelay: '0.1s' }}
+        >
+
+          {/* ── VIDEO RESOLUTION ── */}
           <div className="bg-white rounded-2xl md:rounded-3xl p-5 md:p-8 shadow-sm border border-slate-100">
             <div className="flex items-center justify-between mb-4 md:mb-6">
-              <h2 className="text-base md:text-lg font-bold text-[#111827] uppercase tracking-wide">Video Resolution</h2>
+              <h2 className="text-base md:text-lg font-bold text-[#111827] uppercase tracking-wide">
+                Video Resolution
+              </h2>
               <span className="bg-[#E2E8F0] text-slate-500 text-[9px] md:text-[10px] font-bold px-2 md:px-3 py-1 md:py-1.5 rounded-md tracking-wider">
                 Recommended: 1080p
               </span>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
-              {data.resolutions.map((res) => (
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4">
+              {RESOLUTIONS.map((res) => (
                 <button
                   key={res.id}
                   onClick={() => setSelectedRes(res.id)}
@@ -182,195 +356,319 @@ const Export = () => {
                   <div className="font-bold text-2xl md:text-4xl text-[#111827] tracking-tight relative">
                     {res.label}
                     {selectedRes === res.id && (
-                       <i className="fa-solid fa-circle-check absolute -top-1 md:-top-2 -right-3 md:-right-4 text-[#128189] text-base md:text-xl animate-fade-in"></i>
+                      <i className="fa-solid fa-circle-check absolute -top-1 md:-top-2 -right-3 md:-right-4 text-[#128189] text-base md:text-xl animate-fade-in" />
                     )}
                   </div>
-                  <div className="font-semibold text-[10px] md:text-xs text-[#4E8182] uppercase tracking-wider">{res.subLabel}</div>
+                  <div className="font-semibold text-[10px] md:text-xs text-[#4E8182] uppercase tracking-wider">
+                    {res.subLabel}
+                  </div>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Format & Caption Mode Grid */}
+          {/* ── FORMAT + CAPTION MODE (side by side) ── */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 items-start">
-             
-             {/* Format Selection */}
-             <div className="bg-white rounded-2xl md:rounded-3xl p-5 md:p-8 shadow-sm border border-slate-100">
-                <h2 className="text-base md:text-lg font-bold text-[#111827] mb-4 md:mb-6 uppercase tracking-wide">Format</h2>
-                <div className="grid grid-cols-2 gap-3 md:gap-4">
-                   {data.formats.map((fmt) => (
-                      <button
-                         key={fmt.id}
-                         onClick={() => setSelectedFormat(fmt.id)}
-                         className={`p-4 md:p-6 rounded-xl border-2 transition-all duration-300 flex flex-col items-center sm:items-start justify-center gap-1 group ${
-                            selectedFormat === fmt.id
-                               ? 'bg-[#F0F9FA] border-[#8CCACB] shadow-sm scale-[1.02]'
-                               : 'bg-white border-slate-100 hover:border-slate-200'
-                         }`}
-                      >
-                         <div className="font-bold text-lg md:text-xl text-[#111827] tracking-tight">{fmt.label}</div>
-                         <div className="font-semibold text-[9px] md:text-[10px] text-[#4E8182] uppercase tracking-wider text-center sm:text-left">{fmt.subLabel}</div>
-                      </button>
-                   ))}
-                </div>
-             </div>
 
-             {/* Caption Mode Selection */}
-             <div className="bg-white rounded-2xl md:rounded-3xl p-5 md:p-8 shadow-sm border border-slate-100">
-                <h2 className="text-base md:text-lg font-bold text-[#111827] mb-4 md:mb-6 uppercase tracking-wide">Caption Mode</h2>
-                <div className="flex flex-col gap-3 md:gap-4">
-                   {data.captionModes.map((mode) => (
-                      <button
-                         key={mode.id}
-                         onClick={() => setSelectedCaptionMode(mode.id)}
-                         className={`p-4 md:p-5 rounded-xl border-2 transition-all duration-300 flex items-center justify-between gap-3 ${
-                            selectedCaptionMode === mode.id
-                               ? 'bg-[#F0F9FA] border-[#8CCACB]'
-                               : 'bg-white border-slate-100 hover:border-slate-200'
-                         }`}
-                      >
-                         <div className="flex items-center gap-3">
-                            <i className={`fa-solid ${mode.icon} ${selectedCaptionMode === mode.id ? 'text-[#128189]' : 'text-slate-400'} text-xl md:text-2xl transition-colors`}></i>
-                            <div className="flex flex-col items-start text-left">
-                               <span className="font-bold text-xs md:text-sm text-[#111827]">{mode.label}</span>
-                               <span className="text-[#64748B] text-[10px] md:text-[11px] font-medium">{mode.description}</span>
-                            </div>
-                         </div>
-                         <i className={`fa-solid ${selectedCaptionMode === mode.id ? 'fa-circle-dot text-[#128189]' : 'fa-circle text-slate-200'} text-xl transition-colors`}></i>
-                      </button>
-                   ))}
-                </div>
-             </div>
-          </div>
-              <div className="w-full bg-white rounded-2xl md:rounded-3xl p-5 md:p-8 shadow-md border border-slate-200 relative overflow-hidden">
-             
-             {/* Progress Info Header */}
-             {exportStatus !== 'idle' && (
-               <div className="flex items-start justify-between mb-3 animate-fade-in">
-                  <div>
-                     <h2 className="text-sm md:text-base font-bold text-[#111827]">Rendering Progress</h2>
-                     <span className="text-slate-500 font-semibold text-[9px] md:text-[10px] tracking-wider uppercase">
-                       {exportStatus === 'complete' ? 'Export Complete' : `Time remaining: ${estimatedTime}`}
-                     </span>
-                  </div>
-                  <span className="text-3xl md:text-4xl font-extrabold text-[#128189] tracking-tighter">
-                    {progress}%
-                  </span>
-               </div>
-             )}
-
-             {/* Progress Bar Fill */}
-             {exportStatus !== 'idle' && (
-               <div className="w-full h-2 md:h-2.5 bg-slate-100 rounded-full mb-6 relative overflow-hidden">
-                  <div 
-                    className="absolute top-0 bottom-0 left-0 bg-[#128189] rounded-full transition-all duration-300 ease-out" 
-                    style={{ width: `${progress}%` }}
+            {/* Format */}
+            <div className="bg-white rounded-2xl md:rounded-3xl p-5 md:p-8 shadow-sm border border-slate-100">
+              <h2 className="text-base md:text-lg font-bold text-[#111827] mb-4 md:mb-6 uppercase tracking-wide">
+                Format
+              </h2>
+              <div className="grid grid-cols-2 gap-3 md:gap-4">
+                {FORMATS.map((fmt) => (
+                  <button
+                    key={fmt.id}
+                    onClick={() => setSelectedFormat(fmt.id)}
+                    disabled={isSrt}
+                    className={`p-4 md:p-6 rounded-xl border-2 transition-all duration-300 flex flex-col items-center sm:items-start justify-center gap-1 group ${
+                      selectedFormat === fmt.id
+                        ? 'bg-[#F0F9FA] border-[#8CCACB] shadow-sm scale-[1.02]'
+                        : 'bg-white border-slate-100 hover:border-slate-200'
+                    } ${isSrt ? 'opacity-40 cursor-not-allowed' : ''}`}
                   >
-                    {/* Shimmer effect when active */}
-                    {exportStatus === 'rendering' && (
-                      <div className="absolute inset-0 bg-white/20 w-full h-full animate-[pulse_1.5s_ease-in-out_infinite]"></div>
-                    )}
-                  </div>
-               </div>
-             )}
+                    <div className="font-bold text-lg md:text-xl text-[#111827] tracking-tight">
+                      {fmt.label}
+                    </div>
+                    <div className="font-semibold text-[9px] md:text-[10px] text-[#4E8182] uppercase tracking-wider text-center sm:text-left">
+                      {fmt.subLabel}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
 
-             {/* Dynamic Action Button */}
-             <button
-               onClick={handleExport}
-               disabled={exportStatus === 'rendering'}
-               className={`w-full text-white font-bold py-3.5 md:py-4 rounded-xl md:rounded-2xl transition-all duration-300 shadow-md flex items-center justify-center gap-2 md:gap-2.5 text-sm md:text-base disabled:opacity-90 disabled:cursor-not-allowed ${
-                 exportStatus === 'rendering' ? 'bg-[#128189]/80' : 
-                 exportStatus === 'complete' ? 'bg-[#10B981] hover:bg-[#059669]' : 
-                 'bg-[#0C4E5E] hover:bg-[#093c48]'
-               }`}
-             >
-                {exportStatus === 'idle' && (
-                  <><i className="fa-solid fa-play"></i> {selectedCaptionMode === 'Separate .SRT' ? 'Download .SRT File' : 'Start Video Export'}</>
-                )}
-                {exportStatus === 'rendering' && (
-                  <><i className="fa-solid fa-circle-notch fa-spin"></i> Generating...</>
-                )}
-                {exportStatus === 'complete' && (
-                  <><i className="fa-solid fa-download"></i> Download Again</>
-                )}
-             </button>
+            {/* Caption Mode */}
+            <div className="bg-white rounded-2xl md:rounded-3xl p-5 md:p-8 shadow-sm border border-slate-100">
+              <h2 className="text-base md:text-lg font-bold text-[#111827] mb-4 md:mb-6 uppercase tracking-wide">
+                Caption Mode
+              </h2>
+              <div className="flex flex-col gap-3 md:gap-4">
+                {CAPTION_MODES.map((mode) => (
+                  <button
+                    key={mode.id}
+                    onClick={() => setSelectedCaptionMode(mode.id)}
+                    className={`p-4 md:p-5 rounded-xl border-2 transition-all duration-300 flex items-center justify-between gap-3 ${
+                      selectedCaptionMode === mode.id
+                        ? 'bg-[#F0F9FA] border-[#8CCACB]'
+                        : 'bg-white border-slate-100 hover:border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <i
+                        className={`fa-solid ${mode.icon} ${
+                          selectedCaptionMode === mode.id ? 'text-[#128189]' : 'text-slate-400'
+                        } text-xl md:text-2xl transition-colors`}
+                      />
+                      <div className="flex flex-col items-start text-left">
+                        <span className="font-bold text-xs md:text-sm text-[#111827]">
+                          {mode.label}
+                        </span>
+                        <span className="text-[#64748B] text-[10px] md:text-[11px] font-medium">
+                          {mode.description}
+                        </span>
+                      </div>
+                    </div>
+                    <i
+                      className={`fa-solid ${
+                        selectedCaptionMode === mode.id
+                          ? 'fa-circle-dot text-[#128189]'
+                          : 'fa-circle text-slate-200'
+                      } text-xl transition-colors`}
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* ── ACTION / PROGRESS CARD ── */}
+          <div className="w-full bg-white rounded-2xl md:rounded-3xl p-5 md:p-8 shadow-md border border-slate-200 relative overflow-hidden">
+
+            {/* Progress header — hidden when idle */}
+            {exportPhase !== 'idle' && (
+              <div className="flex items-start justify-between mb-3 animate-fade-in">
+                <div>
+                  <h2 className="text-sm md:text-base font-bold text-[#111827]">
+                    Rendering Progress
+                  </h2>
+                  <span className="text-slate-500 font-semibold text-[9px] md:text-[10px] tracking-wider uppercase">
+                    {exportPhase === 'complete' && 'Export Complete'}
+                    {exportPhase === 'failed'   && 'Export Failed'}
+                    {(exportPhase === 'submitting' || exportPhase === 'rendering') &&
+                      `Time remaining: ${estimatedTime}`}
+                  </span>
+                </div>
+                <span className="text-3xl md:text-4xl font-extrabold text-[#128189] tracking-tighter">
+                  {Math.round(progress)}%
+                </span>
+              </div>
+            )}
+
+            {/* Progress bar — hidden when idle */}
+            {exportPhase !== 'idle' && (
+              <div className="w-full h-2 md:h-2.5 bg-slate-100 rounded-full mb-6 relative overflow-hidden">
+                <div
+                  className={`absolute top-0 bottom-0 left-0 rounded-full transition-all duration-500 ease-out ${
+                    exportPhase === 'failed' ? 'bg-red-500' : 'bg-[#128189]'
+                  }`}
+                  style={{ width: `${progress}%` }}
+                >
+                  {(exportPhase === 'submitting' || exportPhase === 'rendering') && (
+                    <div className="absolute inset-0 bg-white/20 w-full h-full animate-[pulse_1.5s_ease-in-out_infinite]" />
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Error message */}
+            {exportPhase === 'failed' && errorMessage && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs md:text-sm font-medium">
+                ⚠ {errorMessage}
+              </div>
+            )}
+
+            {/* ── CTA Buttons — driven by exportPhase ── */}
+
+            {/* IDLE */}
+            {exportPhase === 'idle' && (
+              <button
+                onClick={handleExport}
+                className="w-full text-white font-bold py-3.5 md:py-4 rounded-xl md:rounded-2xl transition-all duration-300 shadow-md flex items-center justify-center gap-2 md:gap-2.5 text-sm md:text-base bg-[#0C4E5E] hover:bg-[#093c48]"
+              >
+                <i className="fa-solid fa-play" />
+                {isSrt ? 'Download .SRT File' : 'Start Video Export'}
+              </button>
+            )}
+
+            {/* SUBMITTING / RENDERING */}
+            {(exportPhase === 'submitting' || exportPhase === 'rendering') && (
+              <button
+                disabled
+                className="w-full text-white font-bold py-3.5 md:py-4 rounded-xl md:rounded-2xl bg-[#128189]/80 flex items-center justify-center gap-2 md:gap-2.5 text-sm md:text-base cursor-not-allowed opacity-90"
+              >
+                <i className="fa-solid fa-circle-notch fa-spin" />
+                Generating…
+              </button>
+            )}
+
+            {/* COMPLETE */}
+            {exportPhase === 'complete' && (
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={handleDownload}
+                  className="flex-1 text-white font-bold py-3.5 md:py-4 rounded-xl md:rounded-2xl transition-all duration-300 shadow-md flex items-center justify-center gap-2 md:gap-2.5 text-sm md:text-base bg-[#10B981] hover:bg-[#059669]"
+                >
+                  <i className="fa-solid fa-download" />
+                  {isSrt
+                    ? 'Download .SRT File'
+                    : `Download ${selectedFormat.toUpperCase()} · ${selectedResLabel}`}
+                </button>
+                <button
+                  onClick={handleReset}
+                  className="sm:w-40 font-bold py-3.5 md:py-4 rounded-xl md:rounded-2xl border-2 border-slate-200 text-slate-600 hover:border-slate-300 transition-all duration-300 text-sm md:text-base"
+                >
+                  Export Again
+                </button>
+              </div>
+            )}
+
+            {/* FAILED */}
+            {exportPhase === 'failed' && (
+              <button
+                onClick={handleReset}
+                className="w-full text-white font-bold py-3.5 md:py-4 rounded-xl md:rounded-2xl transition-all duration-300 shadow-md flex items-center justify-center gap-2 md:gap-2.5 text-sm md:text-base bg-[#0C4E5E] hover:bg-[#093c48]"
+              >
+                <i className="fa-solid fa-rotate-right" />
+                Try Again
+              </button>
+            )}
           </div>
         </div>
 
-        {/* =========================================
-            RIGHT COLUMN: PREVIEW & EXPORT DETAILS
-            ========================================= */}
-        <div className="lg:col-span-1 flex flex-col gap-6 md:gap-8 animate-slide-up" style={{ animationDelay: '0.2s' }}>
-          
-          {/* Dynamic Video Preview */}
+        {/* ════════════════════════════════════════════════════════════════
+            RIGHT COLUMN — preview + details  (1 / 3 width)
+            ════════════════════════════════════════════════════════════════ */}
+        <div
+          className="lg:col-span-1 flex flex-col gap-6 md:gap-8 animate-slide-up"
+          style={{ animationDelay: '0.2s' }}
+        >
+
+          {/* ── VIDEO THUMBNAIL PREVIEW ── */}
           <div className="bg-white rounded-2xl md:rounded-3xl overflow-hidden shadow-sm border border-slate-100 relative group">
-             <div className="relative aspect-[16/9] bg-slate-800 flex items-center justify-center overflow-hidden">
-                <img 
-                  src={data.video.thumbnailUrl} 
-                  alt="Thumbnail" 
-                  className="w-full h-full object-cover opacity-80 group-hover:scale-105 transition-transform duration-700" 
+            <div className="relative aspect-[16/9] bg-slate-800 flex items-center justify-center overflow-hidden">
+
+              {/* Real thumbnail from backend — fallback to placeholder */}
+              {thumbnailUrl ? (
+                <img
+                  src={thumbnailUrl}
+                  alt={displayName}
+                  className="w-full h-full object-cover opacity-80 group-hover:scale-105 transition-transform duration-700"
                 />
-                
-                {/* Gradient Overlay & Text */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex flex-col items-start justify-end p-4 md:p-5">
-                   <div className="text-white text-[10px] md:text-xs font-bold mb-1.5 flex items-center gap-1.5 uppercase tracking-wider">
-                     <span className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-                     </span> 
-                     MASTER PREVIEW
-                   </div>
-                   <h3 className="text-white font-bold text-sm md:text-base leading-snug mb-1 truncate w-full">
-                     {data.video.name}
-                   </h3>
-                   <div className="text-slate-300 text-[10px] md:text-[11px] font-medium tracking-wide">
-                     {selectedRes} • {data.video.fps} • {data.video.duration}
-                   </div>
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-700 to-slate-900">
+                  <i className="fa-solid fa-film text-slate-500 text-4xl" />
                 </div>
-             </div>
+              )}
+
+              {/* Overlay with live badge + video info from backend */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex flex-col items-start justify-end p-4 md:p-5">
+                <div className="text-white text-[10px] md:text-xs font-bold mb-1.5 flex items-center gap-1.5 uppercase tracking-wider">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                  </span>
+                  Master Preview
+                </div>
+                {/* Video file name — from backend */}
+                <h3 className="text-white font-bold text-sm md:text-base leading-snug mb-1 truncate w-full">
+                  {displayName}
+                </h3>
+                {/* Resolution + fps + duration — from backend + selection */}
+                <div className="text-slate-300 text-[10px] md:text-[11px] font-medium tracking-wide">
+                  {selectedResLabel} · {displayFps} · {displayDuration}
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* Dynamic Export Details */}
+          {/* ── EXPORT DETAILS — all values from real videoData ── */}
           <div className="bg-white rounded-2xl md:rounded-3xl p-5 md:p-8 shadow-sm border border-slate-100">
-             <h2 className="text-base md:text-lg font-bold text-[#111827] mb-4 md:mb-6 uppercase tracking-wide">Export Details</h2>
-             <div className="flex flex-col gap-3">
-                <div className="flex items-center justify-between py-1 border-b border-slate-50">
-                  <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">Estimated Size</span>
-                  <span className="text-[#111827] font-bold text-xs md:text-sm">{calculateEstimatedSize()}</span>
-                </div>
-                <div className="flex items-center justify-between py-1 border-b border-slate-50">
-                  <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">Codec</span>
-                  <span className="text-[#111827] font-bold text-xs md:text-sm">{data.details.codec}</span>
-                </div>
-                <div className="flex items-center justify-between py-1 border-b border-slate-50">
-                  <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">Color Space</span>
-                  <span className="text-[#111827] font-bold text-xs md:text-sm">{data.details.colorSpace}</span>
-                </div>
-                <div className="flex items-center justify-between py-1 pt-2">
-                  <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">Project Link</span>
-                  <button 
-                    onClick={() => navigator.clipboard.writeText(data.details.projectLink)}
-                    className="text-[#128189] font-bold text-xs md:text-sm flex items-center gap-1.5 hover:text-[#0E666D] transition-colors"
-                  >
-                     Copy URL <i className="fa-solid fa-copy"></i>
-                  </button>
-                </div>
-             </div>
+            <h2 className="text-base md:text-lg font-bold text-[#111827] mb-4 md:mb-6 uppercase tracking-wide">
+              Export Details
+            </h2>
+
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between py-1 border-b border-slate-50">
+                <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">
+                  Estimated Size
+                </span>
+                {/* Client-side estimate based on selection */}
+                <span className="text-[#111827] font-bold text-xs md:text-sm">
+                  {estimatedSize}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between py-1 border-b border-slate-50">
+                <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">
+                  Codec
+                </span>
+                {/* Real codec from backend */}
+                <span className="text-[#111827] font-bold text-xs md:text-sm">
+                  {displayCodec}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between py-1 border-b border-slate-50">
+                <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">
+                  Duration
+                </span>
+                {/* Real duration from backend */}
+                <span className="text-[#111827] font-bold text-xs md:text-sm">
+                  {displayDuration}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between py-1 border-b border-slate-50">
+                <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">
+                  Frame Rate
+                </span>
+                {/* Real fps from backend */}
+                <span className="text-[#111827] font-bold text-xs md:text-sm">
+                  {displayFps}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between py-1 pt-2">
+                <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">
+                  Project Link
+                </span>
+                {/* Copies shareable URL to clipboard */}
+                <button
+                  onClick={() =>
+                    navigator.clipboard.writeText(
+                      `${window.location.origin}/videos/${videoId}`
+                    )
+                  }
+                  className="text-[#128189] font-bold text-xs md:text-sm flex items-center gap-1.5 hover:text-[#0E666D] transition-colors"
+                >
+                  Copy URL <i className="fa-solid fa-copy" />
+                </button>
+              </div>
+            </div>
           </div>
 
-          {/* Turbo Mode Card */}
+          {/* ── TURBO MODE BADGE ── */}
           <div className="bg-[#F6EBE5] rounded-2xl md:rounded-3xl p-4 md:p-6 border border-[#ECCACA] flex items-center gap-3 md:gap-4 shadow-sm">
-             <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-[#B16938]/10 flex items-center justify-center flex-shrink-0">
-               <i className="fa-solid fa-bolt text-[#B16938] text-lg md:text-xl"></i>
-             </div>
-             <p className="text-[#845330] font-medium text-[11px] md:text-xs leading-relaxed">
-               <span className="font-bold text-[#B16938]">Turbo Mode:</span> Using GPU acceleration for 3.5x faster rendering.
-             </p>
+            <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-[#B16938]/10 flex items-center justify-center flex-shrink-0">
+              <i className="fa-solid fa-bolt text-[#B16938] text-lg md:text-xl" />
+            </div>
+            <p className="text-[#845330] font-medium text-[11px] md:text-xs leading-relaxed">
+              <span className="font-bold text-[#B16938]">Turbo Mode:</span>{' '}
+              Using GPU acceleration for 3.5× faster rendering.
+            </p>
           </div>
 
-          {/* Action / Rendering Progress Block */}
-         
-          
         </div>
       </div>
     </div>

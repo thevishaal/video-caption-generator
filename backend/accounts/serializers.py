@@ -8,6 +8,15 @@ from django.contrib.auth import authenticate
 from django.conf import settings
 
 
+from rest_framework import serializers
+from django.conf import settings
+from django.utils import timezone
+from datetime import timedelta
+
+from .models import User
+from .utils import generate_token, send_verification_email
+
+
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
 
@@ -17,24 +26,39 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def validate_email(self, value):
         if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("User with this email already exists.")
+            raise serializers.ValidationError(
+                "User with this email already exists."
+            )
         return value
-    
+
     def create(self, validated_data):
         password = validated_data.pop('password')
 
         user = User(**validated_data)
         user.set_password(password)
-        
+
+        user.is_active = False
+        user.is_verified = False
+
+        # Generate token ONLY HERE
         raw_token, hashed_token = generate_token()
+
         user.verification_token = hashed_token
-        user.verification_token_expiry = datetime.now() + timedelta(minutes=10)
+        user.verification_token_expiry = (
+            timezone.now() + timedelta(minutes=10)
+        )
+
         user.save()
 
-        # send email for verification
-        verification_link = f"{settings.FRONTEND_URL}/verify-email/{raw_token}"
-        async_task(send_verification_email, user.email, verification_link)
+        # Send verification email
+        verification_link = (
+            f"{settings.FRONTEND_URL}/verify-email/{raw_token}"
+        )
+
+        send_verification_email(user.email, verification_link)
+
         print(f"Verification token for {user.email}: {raw_token}")
+
         return user
 
 class LoginSerializer(serializers.Serializer):
