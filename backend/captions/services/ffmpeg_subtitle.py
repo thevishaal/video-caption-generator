@@ -30,72 +30,87 @@ ASS_ALIGNMENT = {
 
 
 def burn_subtitles_into_video(
-    video_path: str,
-    captions: list,
-    video_id,
-    language: str = "en",
-    resolution: str = "1280x720",
-    export_format: str = "mp4",
-    use_translated: bool = False,
-) -> str:
-    """
-    Generates SRT, burns it into video with FFmpeg.
-    Returns path to exported file saved under MEDIA_ROOT/videos/exports/captions/.
-    """
+    video_path, captions, video_id,
+    language="en", resolution="1280x720",
+    export_format="mp4", use_translated=False,
+):
     if not shutil.which("ffmpeg"):
         raise EnvironmentError("FFmpeg not found in PATH.")
 
-    srt_path = save_srt_file(captions, video_id, language, use_translated=use_translated)
+    ass_path = _save_ass_file(captions, video_id, language, use_translated)
     output_dir = os.path.join(settings.MEDIA_ROOT, "videos", "exports", "captions")
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"{video_id}_{language}.{export_format}")
-
     scale = RESOLUTION_SCALE_MAP.get(resolution, "1280:720")
-    style_filter = _build_subtitle_filter(captions, srt_path)
+
+    # Windows path fix: backslashes and colons break FFmpeg filters
+    ass_escaped = ass_path.replace("\\", "/").replace(":", "\\:")
 
     cmd = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-vf", f"scale={scale},{style_filter}",
+        "ffmpeg", "-y", "-i", video_path,
+        "-vf", f"scale={scale},ass='{ass_escaped}'",
         "-c:v", "libx264", "-crf", "18", "-preset", "fast",
         "-c:a", "aac", "-b:a", "192k",
         output_path,
     ]
-
-    logger.info("Burning subtitles: %s", " ".join(cmd))
-    run_command(cmd)  # raises RuntimeError on failure — matches videos pattern
-
+    run_command(cmd)
     return output_path
 
 
-def _build_subtitle_filter(captions: list, srt_path: str) -> str:
-    escaped = srt_path.replace("\\", "/").replace(":", "\\:")
-    style_parts = []
-
-    first = captions[0] if captions else None
-    if first:
-        color = _hex_to_ass(getattr(first, "font_color", "#FFFFFF"))
-        align = ASS_ALIGNMENT.get(getattr(first, "position", "bottom-center"), 2)
-        style_parts = [
-            f"FontName={getattr(first, 'font_family', 'Montserrat')}",
-            f"FontSize={getattr(first, 'font_size', 32)}",
-            f"PrimaryColour={color}",
-            f"Alignment={align}",
-            f"Bold={1 if getattr(first, 'bold', False) else 0}",
-            "BorderStyle=4",
-            "BackColour=&H99000000",
-            "Outline=0", "Shadow=0",
-        ]
-
-    force_style = ",".join(style_parts)
-    if force_style:
-        return f"subtitles='{escaped}':force_style='{force_style}'"
-    return f"subtitles='{escaped}'"
+def _save_ass_file(captions, video_id, language, use_translated):
+    ass_dir = os.path.join(settings.MEDIA_ROOT, "ass")
+    os.makedirs(ass_dir, exist_ok=True)
+    ass_path = os.path.join(ass_dir, f"video_{video_id}_{language}.ass")
+    with open(ass_path, "w", encoding="utf-8") as f:
+        f.write(_build_ass(captions, captions[0] if captions else None, use_translated))
+    return ass_path
 
 
-def _hex_to_ass(hex_color: str) -> str:
-    """#RRGGBB → ASS &H00BBGGRR"""
+def _build_ass(captions, first, use_translated):
+    font_name  = getattr(first, "font_family",       "Montserrat") if first else "Montserrat"
+    font_size  = getattr(first, "font_size",          32)          if first else 32
+    font_color = _hex_to_ass_color(getattr(first, "font_color",   "#FFFFFF") if first else "#FFFFFF")
+    bold       = 1 if getattr(first, "bold",   False) else 0
+    italic     = 1 if getattr(first, "italic", False) else 0
+    alignment  = ASS_ALIGNMENT.get(getattr(first, "position", "bottom-center") if first else "bottom-center", 2)
+    back_color = _rgba_to_ass_color(getattr(first, "background_color", "rgba(0,0,0,0.6)") if first else "rgba(0,0,0,0.6)")
+    margin_v   = 20 if alignment in (1, 2, 3) else 10
+
+    header = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,{font_name},{font_size},{font_color},&H000000FF,&H00000000,{back_color},{bold},{italic},0,0,100,100,0,0,4,0,0,{alignment},10,10,{margin_v},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    lines = [header]
+    for cap in captions:
+        text  = (cap.translated_text if use_translated and cap.translated_text else cap.original_text).strip().replace("\n", "\\N")
+        lines.append(f"Dialogue: 0,{_to_ass_time(cap.start_time)},{_to_ass_time(cap.end_time)},Default,,0,0,0,,{text}")
+    return "\n".join(lines)
+
+
+def _to_ass_time(seconds):
+    cs = int(round(seconds * 100))
+    return f"{cs//360000}:{(cs%360000)//6000:02d}:{(cs%6000)//100:02d}.{cs%100:02d}"
+
+
+def _hex_to_ass_color(hex_color):
     h = hex_color.lstrip("#")
-    if len(h) == 6:
-        return f"&H00{h[4:6]}{h[2:4]}{h[0:2]}"
-    return "&H00FFFFFF"
+    return f"&H00{h[4:6]}{h[2:4]}{h[0:2]}" if len(h) == 6 else "&H00FFFFFF"
+
+
+def _rgba_to_ass_color(rgba):
+    try:
+        inner = rgba.strip().lstrip("rgba(").rstrip(")")
+        r, g, b, a = [p.strip() for p in inner.split(",")]
+        alpha = int((1.0 - float(a)) * 255)
+        return f"&H{alpha:02X}{int(b):02X}{int(g):02X}{int(r):02X}"
+    except Exception:
+        return "&H99000000"
