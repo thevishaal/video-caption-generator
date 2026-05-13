@@ -1,5 +1,4 @@
 from rest_framework import serializers
-
 from .models import Video, ExportJob
 from .utils import validate_video_file
 from .constants import SUPPORTED_EXPORT_FORMATS, SUPPORTED_RESOLUTIONS
@@ -146,3 +145,6 @@ class ExportJobSerializer(serializers.ModelSerializer):
             return None
         url = f"/api/videos/{obj.video_id}/download/"
         return request.build_absolute_uri(url) if request else url
+
+
+

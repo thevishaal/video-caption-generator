@@ -20,9 +20,9 @@ RESOLUTION_SCALE_MAP = {
 }
 
 ASS_ALIGNMENT = {
-    "top": 8,
-    "center": 5,
-    "bottom": 2,
+    "top-left": 7,
+    "top-center": 8,
+    "top-right": 9,
     "bottom-left": 1,
     "bottom-center": 2,
     "bottom-right": 3,

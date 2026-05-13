@@ -42,7 +42,7 @@ def _translate_chunk(texts: list[str], lang_name: str) -> list[str]:
                 "Content-Type": "application/json",
             },
             json={
-                "model": TRANSLATION_MODEL,
+                "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.2,
             },

@@ -10,6 +10,6 @@ urlpatterns = [
     path("me/", views.MeView.as_view(), name="me"),
     path("change-password/", views.ChangePasswordView.as_view(), name="change-password"),
     path("forgot-password/", views.ForgotPasswordView.as_view(), name="forgot-password"),
-    path("reset-password/<str:token>", views.ResetPasswordView.as_view(), name="reset-password"),
+    path("reset-password/<str:token>/", views.ResetPasswordView.as_view(), name="reset-password"),
     path("resend-verification-email/", views.ResendVerificationEmailView.as_view(), name="resend-verification-email"),
 ]

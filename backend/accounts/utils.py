@@ -4,8 +4,9 @@ import threading
 from django.core.mail import send_mail
 import requests
 
+
 def generate_token():
-    raw_token = secrets.token_hex(32)
+    raw_token = secrets.token_hex(32)  # 64-char random token
     hashed_token = hashlib.sha256(raw_token.encode()).hexdigest()
     return raw_token, hashed_token
 

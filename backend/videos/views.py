@@ -66,6 +66,7 @@ class VideoUploadView(APIView):
         serializer = VideoUploadSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         video = serializer.save()
+        
 
         # populate_video_metadata does two things in one call:
         #   1. Reads ffprobe output → saves width/height/fps/codec/duration.
@@ -85,10 +86,12 @@ class VideoUploadView(APIView):
         video.refresh_from_db()
 
         response_data = VideoPreviewSerializer(video, context={"request": request}).data
+        
         return api_success(
             data=response_data,
             message="Video uploaded successfully.",
             http_status=status.HTTP_201_CREATED,
+
         )
 
 

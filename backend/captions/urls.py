@@ -3,7 +3,7 @@ from captions import views
 
 urlpatterns = [
     # Caption generation & translation
-    path("generate", views.GenerateCaptionsView.as_view(), name="captions-generate"),
+    path("generate/", views.GenerateCaptionsView.as_view(), name="captions-generate"),
     path("translate", views.TranslateCaptionsView.as_view(), name="captions-translate"),
     path("style", views.CaptionStyleView.as_view(), name="captions-style"),
 

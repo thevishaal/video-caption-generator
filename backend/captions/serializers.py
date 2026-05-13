@@ -39,7 +39,7 @@ class CaptionStyleSerializer(serializers.Serializer):
     font_color = serializers.CharField(max_length=20, required=False)
     background_color = serializers.CharField(max_length=50, required=False)
     position = serializers.ChoiceField(
-        choices=["top", "center", "bottom", "bottom-left", "bottom-center", "bottom-right"],
+        choices=["top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right"],
         required=False,
     )
     alignment = serializers.ChoiceField(choices=["left", "center", "right"], required=False)
