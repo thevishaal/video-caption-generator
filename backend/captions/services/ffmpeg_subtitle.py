@@ -1,59 +1,42 @@
 """
-Burns ASS subtitles into video using FFmpeg.
+Burns SRT subtitles into video using FFmpeg.
+Reuses videos.utils.run_command — no subprocess duplication.
 """
 import os
 import shutil
 import logging
 from django.conf import settings
 from videos.utils import run_command
-from captions.utils.ass_generator import build_ass_file
 
 logger = logging.getLogger(__name__)
 
+# Matches videos/constants.py SUPPORTED_RESOLUTIONS keys → WxH string
 RESOLUTION_SCALE_MAP = {
-    "854x480":   "854:480",
-    "1280x720":  "1280:720",
+    "854x480": "854:480",
+    "1280x720": "1280:720",
     "1920x1080": "1920:1080",
     "3840x2160": "3840:2160",
 }
 
+ASS_ALIGNMENT = {
+    "top-left": 7,
+    "top-center": 8,
+    "top-right": 9,
+    "bottom-left": 1,
+    "bottom-center": 2,
+    "bottom-right": 3,
+}
+
+
 def burn_subtitles_into_video(
-    video_path: str,
-    captions: list,
-    video_id: str,
-    language: str = "en",
-    resolution: str = "1280x720",
-    export_format: str = "mp4",
-    use_translated: bool = False,
-) -> str:
-    
+    video_path, captions, video_id,
+    language="en", resolution="1280x720",
+    export_format="mp4", use_translated=False,
+):
     if not shutil.which("ffmpeg"):
         raise EnvironmentError("FFmpeg not found in PATH.")
 
-    # 1. Generate the ASS file in the media folder
-    ass_path = build_ass_file(
-        captions=captions,
-        video_id=video_id,
-        language=language,
-        use_translated=use_translated,
-        resolution=resolution,
-    )
-
-    if not os.path.exists(ass_path):
-        raise RuntimeError(f"ASS file not created: {ass_path}")
-
-    # 2. ✅ CRITICAL: Format the path strictly for FFmpeg's 'ass' filter
-    # Convert to absolute path, change backslashes to forward slashes
-    ass_escaped = os.path.abspath(ass_path).replace("\\", "/")
-    
-    # Escape the drive colon (e.g., C:/ becomes C\:/) 
-    # FFmpeg uses colons to separate filter arguments, so this is mandatory on Windows.
-    if len(ass_escaped) > 1 and ass_escaped[1] == ":":
-        ass_escaped = ass_escaped[0] + "\\:" + ass_escaped[2:]
-
-    logger.info("[BURN] Executing with ASS file: %s", ass_escaped)
-
-    # 3. Setup output path
+    ass_path = _save_ass_file(captions, video_id, language, use_translated)
     output_dir = os.path.join(settings.MEDIA_ROOT, "videos", "exports", "captions")
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"{video_id}_{language}.{export_format}")
@@ -62,7 +45,6 @@ def burn_subtitles_into_video(
     # Windows path fix: backslashes and colons break FFmpeg filters
     ass_escaped = ass_path.replace("\\", "/").replace(":", "\\:")
 
-    # 4. Build the FFmpeg command using the 'ass' filter (NOT 'subtitles')
     cmd = [
         "ffmpeg", "-y", "-i", video_path,
         "-vf", f"scale={scale},ass='{ass_escaped}'",

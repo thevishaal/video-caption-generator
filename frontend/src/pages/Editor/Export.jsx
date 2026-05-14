@@ -1,17 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useLocation } from "react-router-dom";
+import { useParams, useLocation, useNavigate } from 'react-router-dom';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// API LAYER  — all network calls live here, nothing else touches fetch()
+// API LAYER
 // ─────────────────────────────────────────────────────────────────────────────
 
-const API_BASE = 'http://127.0.0.1:8000/api';   // adjust to match your actual base path
+const API_BASE = 'http://127.0.0.1:8000/api'; // adjust to match your actual base path
 
 function authHeaders() {
-  const token =
-    localStorage.getItem('token') ||
-    sessionStorage.getItem('token') ||
-    '';
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -25,8 +22,6 @@ async function apiFetch(path, options = {}) {
   });
 
   const text = await res.text();
-  console.log(text);
-
   const json = JSON.parse(text);
 
   if (!res.ok || json.success === false) {
@@ -35,111 +30,135 @@ async function apiFetch(path, options = {}) {
 
   return json.data;
 }
-// GET  /api/videos/:id/preview/
-const fetchVideoPreview = (videoId) =>
-  apiFetch(`/videos/${videoId}/preview/`);
 
-// POST /api/videos/:id/export/  → returns ExportJob
+const fetchVideoPreview = (videoId) => apiFetch(`/videos/${videoId}/preview/`);
+
 const startVideoExport = (videoId, payload) =>
   apiFetch(`/videos/${videoId}/export/`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
 
-// GET  /api/videos/:videoId/export/:exportId/status/
 const fetchExportStatus = (videoId, exportId) =>
   apiFetch(`/videos/${videoId}/export/${exportId}/status/`);
 
-// GET  /api/videos/:id/download/  (streams the exported file)
-const buildVideoDownloadUrl = (videoId) =>
-  `${API_BASE}/videos/${videoId}/download/`;
+const buildVideoDownloadUrl = (videoId) => `${API_BASE}/videos/${videoId}/download/`;
 
-// GET  /api/captions/videos/:videoId/download-srt?language=…
 const buildSrtDownloadUrl = (videoId, language = 'en', translated = false) =>
   `${API_BASE}/captions/videos/${videoId}/download-srt?language=${language}&translated=${translated}`;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STATIC UI OPTIONS  — zero mock data here, only labels / IDs
+// STATIC CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
 
 const RESOLUTIONS = [
-  { id: '854x480',   label: '480p',  subLabel: 'SD'       },
+  { id: '854x480',   label: '480p',  subLabel: 'SD' },
   { id: '1280x720',  label: '720p',  subLabel: 'HD Ready' },
-  { id: '1920x1080', label: '1080p', subLabel: 'Full HD'  },
+  { id: '1920x1080', label: '1080p', subLabel: 'Full HD' },
   { id: '3840x2160', label: '4K',    subLabel: 'Ultra HD' },
 ];
 
 const FORMATS = [
   { id: 'mp4', label: 'MP4', subLabel: 'H.264 HIGH' },
-  { id: 'mov', label: 'MOV', subLabel: 'PRORES 422'  },
+  { id: 'mov', label: 'MOV', subLabel: 'PRORES 422' },
 ];
 
 const CAPTION_MODES = [
-  { id: 'Burned-in',     label: 'Burned-in',    description: 'Permanent on video',    icon: 'fa-closed-captioning' },
-  { id: 'Separate .SRT', label: 'Separate .SRT', description: 'Sidecar file for web', icon: 'fa-file-lines'        },
+  { id: 'Burned-in',     label: 'Burned-in',     description: 'Permanent on video',   icon: 'fa-closed-captioning' },
+  { id: 'Separate .SRT', label: 'Separate .SRT', description: 'Sidecar file for web', icon: 'fa-file-lines' },
 ];
 
-// ── Rough client-side size estimate for UX only (not authoritative) ──────────
-const SIZE_MULTIPLIERS = {
-  '854x480':   0.35,
-  '1280x720':  0.60,
-  '1920x1080': 1.00,
-  '3840x2160': 2.80,
-};
-const FORMAT_BASE_MB = { mp4: 842, mov: 1450 };
+// ─────────────────────────────────────────────────────────────────────────────
+// UTILITIES
+// ─────────────────────────────────────────────────────────────────────────────
 
-function estimateSize(formatId, resolutionId, isSrt) {
+function formatFileSize(bytes) {
+  if (bytes == null || isNaN(Number(bytes))) return '—';
+  const b = Number(bytes);
+  if (b === 0) return '0 Bytes';
+  
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(b) / Math.log(k));
+  
+  return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function formatDuration(secs) {
+  if (secs == null || isNaN(Number(secs))) return '--:--';
+  const totalSeconds = Number(secs);
+  const m = Math.floor(totalSeconds / 60);
+  const s = Math.floor(totalSeconds % 60);
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Dynamically calculates estimated export size based on original video metadata
+ * applying realistic non-linear scaling for resolution changes and codec formats.
+ */
+function calculateEstimatedExportSize(originalBytes, origW, origH, targetResString, targetFormat, isSrt) {
   if (isSrt) return '~12 KB';
-  const base = FORMAT_BASE_MB[formatId] ?? 842;
-  const mult = SIZE_MULTIPLIERS[resolutionId] ?? 1.0;
-  const mb   = base * mult;
-  return mb >= 1024
-    ? `${(mb / 1024).toFixed(1)} GB`
-    : `${Math.round(mb)} MB`;
+  if (!originalBytes || isNaN(Number(originalBytes))) return '—';
+
+  const baseBytes = Number(originalBytes);
+
+  // Parse target resolution
+  const [targetW, targetH] = targetResString.split('x').map(Number);
+  const targetPixels = targetW * targetH;
+
+  // Parse original resolution (fallback to standard 1080p if missing from metadata)
+  const originalW = Number(origW) || 1920;
+  const originalH = Number(origH) || 1080;
+  const originalPixels = originalW * originalH;
+
+  // Realistic compression scaling: File sizes don't scale 1:1 with pixels.
+  // Using an exponent (0.75) mimics standard H.264/HEVC bitrate efficiency curves.
+  const resolutionMultiplier = Math.pow(targetPixels / originalPixels, 0.75);
+
+  // Format multiplier: MOV typically uses less efficient or heavier codecs than standard MP4.
+  const formatMultiplier = targetFormat === 'mov' ? 1.6 : 1.0;
+
+  const qualityOverhead = 1.7; 
+  const estimatedBytes = baseBytes * resolutionMultiplier * formatMultiplier * qualityOverhead;
+
+  return formatFileSize(estimatedBytes);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Props
- *   videoId   {string}  UUID of the video to export  (required)
- *   language  {string}  caption language code         (default "en")
- */
 const Export = () => {
   const { videoId } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  const location = useLocation();  // import bhi add karo
-  const [selectedLanguage, setSelectedLanguage] = useState(
-    location.state?.activeLang || 'en'
-  );
+  const [selectedLanguage, setSelectedLanguage] = useState(location.state?.activeLang || 'en');
   const useTranslated = selectedLanguage !== 'en';
 
-  // ── Video data from backend ──────────────────────────────────────────────
-  const [videoData,  setVideoData]  = useState(null);
-  const [isLoading,  setIsLoading]  = useState(true);
-  const [loadError,  setLoadError]  = useState(null);
+  // ── State: Video Metadata
+  const [videoData, setVideoData] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
 
-  // ── User selections ──────────────────────────────────────────────────────
-  const [selectedRes,         setSelectedRes]         = useState('1920x1080');
-  const [selectedFormat,      setSelectedFormat]      = useState('mp4');
+  // ── State: User Selections
+  const [selectedRes, setSelectedRes] = useState('1920x1080');
+  const [selectedFormat, setSelectedFormat] = useState('mp4');
   const [selectedCaptionMode, setSelectedCaptionMode] = useState('Burned-in');
 
-  // ── Export-job state ─────────────────────────────────────────────────────
-  // phase: 'idle' | 'submitting' | 'rendering' | 'complete' | 'failed'
-  const [exportPhase,   setExportPhase]   = useState('idle');
-  const [progress,      setProgress]      = useState(0);
+  // ── State: Export Job
+  const [exportPhase, setExportPhase] = useState('idle'); // 'idle' | 'submitting' | 'rendering' | 'complete' | 'failed'
+  const [progress, setProgress] = useState(0);
   const [estimatedTime, setEstimatedTime] = useState('--:--');
-  const [exportJobId,   setExportJobId]   = useState(null);
-  const [errorMessage,  setErrorMessage]  = useState('');
+  const [exportJobId, setExportJobId] = useState(null);
+  const [errorMessage, setErrorMessage] = useState('');
 
-  const pollTimerRef     = useRef(null);
+  const pollTimerRef = useRef(null);
   const progressTimerRef = useRef(null);
 
   const isSrt = selectedCaptionMode === 'Separate .SRT';
 
-  // ── 1. Fetch video preview on mount ─────────────────────────────────────
+  // ── 1. Initialization & Cleanup
   useEffect(() => {
     if (!videoId) {
       setLoadError('No videoId provided.');
@@ -147,32 +166,24 @@ const Export = () => {
       return;
     }
     fetchVideoPreview(videoId)
-      .then((data) => { setVideoData(data); setIsLoading(false); })
-      .catch((err)  => { setLoadError(err.message); setIsLoading(false); });
+      .then((data) => {
+        setVideoData(data);
+        setIsLoading(false);
+      })
+      .catch((err) => {
+        setLoadError(err.message);
+        setIsLoading(false);
+      });
   }, [videoId]);
 
-
-
-  const LANGUAGES = [
-  { id: 'en', label: 'English' },
-  { id: 'hi', label: 'Hindi' },
-  { id: 'es', label: 'Spanish' },
-  { id: 'fr', label: 'French' },
-  { id: 'de', label: 'German' },
-  { id: 'ar', label: 'Arabic' },
-  { id: 'pt', label: 'Portuguese' },
-  { id: 'ja', label: 'Japanese' },
-  { id: 'ko', label: 'Korean' },
-  { id: 'zh', label: 'Chinese' },
-];
-
-  // ── 2. Cleanup timers on unmount ─────────────────────────────────────────
-  useEffect(() => () => {
-    clearInterval(pollTimerRef.current);
-    clearInterval(progressTimerRef.current);
+  useEffect(() => {
+    return () => {
+      clearInterval(pollTimerRef.current);
+      clearInterval(progressTimerRef.current);
+    };
   }, []);
 
-  // ── 3. Smooth fake-progress while polling ─────────────────────────────────
+  // ── 2. Progress Animations
   const startProgressAnimation = () => {
     progressTimerRef.current = setInterval(() => {
       setProgress((p) => (p < 88 ? p + Math.random() * 2.5 : p));
@@ -183,7 +194,6 @@ const Export = () => {
     }, 800);
   };
 
-  // ── 4. Poll export-job status ─────────────────────────────────────────────
   const startPolling = useCallback((jobId) => {
     pollTimerRef.current = setInterval(async () => {
       try {
@@ -200,21 +210,18 @@ const Export = () => {
           setErrorMessage(job.error_message || 'Export failed on the server.');
           setExportPhase('failed');
         }
-        // status === 'processing' → keep polling
       } catch {
-        // transient network hiccup — keep polling
+        // Transient network hiccup — keep polling
       }
     }, 2000);
   }, [videoId]);
 
-  // ── 5. Kick off export ────────────────────────────────────────────────────
+  // ── 3. Actions
   const handleExport = async () => {
-
-
-      if (isSrt) {
-        handleDownload();
-        return;
-      }
+    if (isSrt) {
+      handleDownload();
+      return;
+    }
     setExportPhase('submitting');
     setProgress(0);
     setEstimatedTime('--:--');
@@ -223,10 +230,10 @@ const Export = () => {
     try {
       const job = await startVideoExport(videoId, {
         export_format: isSrt ? 'srt' : selectedFormat,
-        resolution:    selectedRes,
-        language:     selectedLanguage, 
-        caption_mode: "burned",
-        use_translated:  useTranslated, 
+        resolution: selectedRes,
+        language: selectedLanguage,
+        caption_mode: 'burned',
+        use_translated: useTranslated,
       });
 
       setExportJobId(job.id);
@@ -240,40 +247,36 @@ const Export = () => {
     }
   };
 
-  // ── 6. Download the exported file ─────────────────────────────────────────
   const handleDownload = async () => {
     const url = isSrt
       ? buildSrtDownloadUrl(videoId, selectedLanguage, useTranslated)
       : buildVideoDownloadUrl(videoId);
-    
-    
 
-      
-    const token =
-      localStorage.getItem('token') ||
-      sessionStorage.getItem('token') ||
-      '';
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
 
     try {
-      const res  = await fetch(url, {
+      const res = await fetch(url, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
+      
       if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
+      
       const blob = await res.blob();
       const name = isSrt
         ? `captions_${videoId}_${selectedLanguage}.srt`
         : `${videoData?.title || videoId}_${selectedRes}_${selectedLanguage}.${selectedFormat}`;
 
       const href = window.URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href = href; a.download = name; a.click();
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = name;
+      a.click();
       window.URL.revokeObjectURL(href);
     } catch (err) {
       setErrorMessage(err.message);
     }
   };
 
-  // ── 7. Reset ──────────────────────────────────────────────────────────────
   const handleReset = () => {
     clearInterval(pollTimerRef.current);
     clearInterval(progressTimerRef.current);
@@ -284,38 +287,40 @@ const Export = () => {
     setErrorMessage('');
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // DERIVED DISPLAY VALUES  — sourced entirely from real videoData
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── 4. Derived UI State
+  const {
+    title,
+    original_filename,
+    duration_seconds,
+    fps,
+    codec,
+    thumbnail_url,
+    file_size,
+    width,
+    height
+  } = videoData || {};
 
-  const formatDuration = (secs) => {
-    if (!secs) return '--:--';
-    const m = Math.floor(secs / 60);
-    const s = Math.floor(secs % 60);
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
-  const displayName     = videoData?.title
-    || videoData?.original_file?.split('/').pop()
-    || '—';
-  const displayDuration = formatDuration(videoData?.duration);
-  const displayFps      = videoData?.fps    ? `${Math.round(videoData.fps)}fps` : '—';
-  const displayCodec    = videoData?.codec  || '—';
-  const thumbnailUrl    = videoData?.thumbnail_url || null;
-  const estimatedSize   = estimateSize(selectedFormat, selectedRes, isSrt);
+  const displayName = title || original_filename || 'Untitled Video';
+  const displayDuration = formatDuration(duration_seconds);
+  const displayFps = fps ? `${Math.round(fps)}fps` : '—';
+  const displayCodec = codec || '—';
   const selectedResLabel = RESOLUTIONS.find((r) => r.id === selectedRes)?.label ?? selectedRes;
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // LOADING / ERROR SCREENS
-  // ─────────────────────────────────────────────────────────────────────────
+  const displaySize = calculateEstimatedExportSize(
+    file_size,
+    width,
+    height,
+    selectedRes,
+    selectedFormat,
+    isSrt
+  );
 
+  // ── 5. Render Loading & Errors
   if (isLoading) {
     return (
       <div className="w-full min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center">
         <i className="fa-solid fa-circle-notch fa-spin text-4xl text-[#128189] mb-4" />
-        <h2 className="text-[#111827] font-bold text-lg animate-pulse">
-          Loading Export Settings…
-        </h2>
+        <h2 className="text-[#111827] font-bold text-lg animate-pulse">Loading Export Settings…</h2>
       </div>
     );
   }
@@ -335,13 +340,9 @@ const Export = () => {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // MAIN RENDER  (structure + class names preserved from original Export.jsx)
-  // ─────────────────────────────────────────────────────────────────────────
-
+  // ── 6. Main Render
   return (
     <div className="w-full min-h-screen bg-[#F8FAFC] p-4 md:p-8 lg:p-12 font-sans overflow-x-hidden flex flex-col">
-
       {/* ── HEADER ── */}
       <div className="mb-8 md:mb-10 animate-fade-in">
         <h1 className="text-2xl md:text-3xl font-bold text-[#111827] mb-2 tracking-tight">
@@ -353,15 +354,11 @@ const Export = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8 items-start">
-
         {/* ════════════════════════════════════════════════════════════════
             LEFT COLUMN — settings  (2 / 3 width)
             ════════════════════════════════════════════════════════════════ */}
-        <div
-          className="lg:col-span-2 flex flex-col gap-6 md:gap-8 animate-slide-up"
-          style={{ animationDelay: '0.1s' }}
-        >
-
+        <div className="lg:col-span-2 flex flex-col gap-6 md:gap-8 animate-slide-up" style={{ animationDelay: '0.1s' }}>
+          
           {/* ── VIDEO RESOLUTION ── */}
           <div className="bg-white rounded-2xl md:rounded-3xl p-5 md:p-8 shadow-sm border border-slate-100">
             <div className="flex items-center justify-between mb-4 md:mb-6">
@@ -398,9 +395,9 @@ const Export = () => {
             </div>
           </div>
 
-          {/* ── FORMAT + CAPTION MODE (side by side) ── */}
+          {/* ── FORMAT + CAPTION MODE ── */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 items-start">
-
+            
             {/* Format */}
             <div className="bg-white rounded-2xl md:rounded-3xl p-5 md:p-8 shadow-sm border border-slate-100">
               <h2 className="text-base md:text-lg font-bold text-[#111827] mb-4 md:mb-6 uppercase tracking-wide">
@@ -475,8 +472,8 @@ const Export = () => {
 
           {/* ── ACTION / PROGRESS CARD ── */}
           <div className="w-full bg-white rounded-2xl md:rounded-3xl p-5 md:p-8 shadow-md border border-slate-200 relative overflow-hidden">
-
-            {/* Progress header — hidden when idle */}
+            
+            {/* Progress Header */}
             {exportPhase !== 'idle' && (
               <div className="flex items-start justify-between mb-3 animate-fade-in">
                 <div>
@@ -486,8 +483,7 @@ const Export = () => {
                   <span className="text-slate-500 font-semibold text-[9px] md:text-[10px] tracking-wider uppercase">
                     {exportPhase === 'complete' && 'Export Complete'}
                     {exportPhase === 'failed'   && 'Export Failed'}
-                    {(exportPhase === 'submitting' || exportPhase === 'rendering') &&
-                      `Time remaining: ${estimatedTime}`}
+                    {(exportPhase === 'submitting' || exportPhase === 'rendering') && `Time remaining: ${estimatedTime}`}
                   </span>
                 </div>
                 <span className="text-3xl md:text-4xl font-extrabold text-[#128189] tracking-tighter">
@@ -496,7 +492,7 @@ const Export = () => {
               </div>
             )}
 
-            {/* Progress bar — hidden when idle */}
+            {/* Progress Bar */}
             {exportPhase !== 'idle' && (
               <div className="w-full h-2 md:h-2.5 bg-slate-100 rounded-full mb-6 relative overflow-hidden">
                 <div
@@ -519,9 +515,7 @@ const Export = () => {
               </div>
             )}
 
-            {/* ── CTA Buttons — driven by exportPhase ── */}
-
-            {/* IDLE */}
+            {/* CTA Buttons */}
             {exportPhase === 'idle' && (
               <button
                 onClick={handleExport}
@@ -532,7 +526,6 @@ const Export = () => {
               </button>
             )}
 
-            {/* SUBMITTING / RENDERING */}
             {(exportPhase === 'submitting' || exportPhase === 'rendering') && (
               <button
                 disabled
@@ -543,7 +536,6 @@ const Export = () => {
               </button>
             )}
 
-            {/* COMPLETE */}
             {exportPhase === 'complete' && (
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
@@ -551,9 +543,7 @@ const Export = () => {
                   className="flex-1 text-white font-bold py-3.5 md:py-4 rounded-xl md:rounded-2xl transition-all duration-300 shadow-md flex items-center justify-center gap-2 md:gap-2.5 text-sm md:text-base bg-[#10B981] hover:bg-[#059669]"
                 >
                   <i className="fa-solid fa-download" />
-                  {isSrt
-                    ? 'Download .SRT File'
-                    : `Download ${selectedFormat.toUpperCase()} · ${selectedResLabel}`}
+                  {isSrt ? 'Download .SRT File' : `Download ${selectedFormat.toUpperCase()} · ${selectedResLabel}`}
                 </button>
                 <button
                   onClick={handleReset}
@@ -564,7 +554,6 @@ const Export = () => {
               </div>
             )}
 
-            {/* FAILED */}
             {exportPhase === 'failed' && (
               <button
                 onClick={handleReset}
@@ -580,19 +569,17 @@ const Export = () => {
         {/* ════════════════════════════════════════════════════════════════
             RIGHT COLUMN — preview + details  (1 / 3 width)
             ════════════════════════════════════════════════════════════════ */}
-        <div
-          className="lg:col-span-1 flex flex-col gap-6 md:gap-8 animate-slide-up"
-          style={{ animationDelay: '0.2s' }}
-        >
-
+        <div className="lg:col-span-1 flex flex-col gap-6 md:gap-8 animate-slide-up" style={{ animationDelay: '0.2s' }}>
+          
           {/* ── VIDEO THUMBNAIL PREVIEW ── */}
-          <div className="bg-white rounded-2xl md:rounded-3xl overflow-hidden shadow-sm border border-slate-100 relative group">
+          <div 
+            onClick={() => navigate(-1)}
+            className="bg-white rounded-2xl md:rounded-3xl overflow-hidden shadow-sm border border-slate-100 relative group cursor-pointer"
+          >
             <div className="relative aspect-[16/9] bg-slate-800 flex items-center justify-center overflow-hidden">
-
-              {/* Real thumbnail from backend — fallback to placeholder */}
-              {thumbnailUrl ? (
+              {thumbnail_url ? (
                 <img
-                  src={thumbnailUrl}
+                  src={thumbnail_url}
                   alt={displayName}
                   className="w-full h-full object-cover opacity-80 group-hover:scale-105 transition-transform duration-700"
                 />
@@ -602,7 +589,6 @@ const Export = () => {
                 </div>
               )}
 
-              {/* Overlay with live badge + video info from backend */}
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex flex-col items-start justify-end p-4 md:p-5">
                 <div className="text-white text-[10px] md:text-xs font-bold mb-1.5 flex items-center gap-1.5 uppercase tracking-wider">
                   <span className="relative flex h-2 w-2">
@@ -611,11 +597,9 @@ const Export = () => {
                   </span>
                   Master Preview
                 </div>
-                {/* Video file name — from backend */}
                 <h3 className="text-white font-bold text-sm md:text-base leading-snug mb-1 truncate w-full">
                   {displayName}
                 </h3>
-                {/* Resolution + fps + duration — from backend + selection */}
                 <div className="text-slate-300 text-[10px] md:text-[11px] font-medium tracking-wide">
                   {selectedResLabel} · {displayFps} · {displayDuration}
                 </div>
@@ -623,7 +607,7 @@ const Export = () => {
             </div>
           </div>
 
-          {/* ── EXPORT DETAILS — all values from real videoData ── */}
+          {/* ── EXPORT DETAILS ── */}
           <div className="bg-white rounded-2xl md:rounded-3xl p-5 md:p-8 shadow-sm border border-slate-100">
             <h2 className="text-base md:text-lg font-bold text-[#111827] mb-4 md:mb-6 uppercase tracking-wide">
               Export Details
@@ -634,9 +618,8 @@ const Export = () => {
                 <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">
                   Estimated Size
                 </span>
-                {/* Client-side estimate based on selection */}
                 <span className="text-[#111827] font-bold text-xs md:text-sm">
-                  {estimatedSize}
+                  {displaySize}
                 </span>
               </div>
 
@@ -644,7 +627,6 @@ const Export = () => {
                 <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">
                   Codec
                 </span>
-                {/* Real codec from backend */}
                 <span className="text-[#111827] font-bold text-xs md:text-sm">
                   {displayCodec}
                 </span>
@@ -654,7 +636,6 @@ const Export = () => {
                 <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">
                   Duration
                 </span>
-                {/* Real duration from backend */}
                 <span className="text-[#111827] font-bold text-xs md:text-sm">
                   {displayDuration}
                 </span>
@@ -664,7 +645,6 @@ const Export = () => {
                 <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">
                   Frame Rate
                 </span>
-                {/* Real fps from backend */}
                 <span className="text-[#111827] font-bold text-xs md:text-sm">
                   {displayFps}
                 </span>
@@ -674,13 +654,8 @@ const Export = () => {
                 <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">
                   Project Link
                 </span>
-                {/* Copies shareable URL to clipboard */}
                 <button
-                  onClick={() =>
-                    navigator.clipboard.writeText(
-                      `${window.location.origin}/videos/${videoId}`
-                    )
-                  }
+                  onClick={() => navigator.clipboard.writeText(`${window.location.origin}/videos/${videoId}`)}
                   className="text-[#128189] font-bold text-xs md:text-sm flex items-center gap-1.5 hover:text-[#0E666D] transition-colors"
                 >
                   Copy URL <i className="fa-solid fa-copy" />
@@ -695,8 +670,7 @@ const Export = () => {
               <i className="fa-solid fa-bolt text-[#B16938] text-lg md:text-xl" />
             </div>
             <p className="text-[#845330] font-medium text-[11px] md:text-xs leading-relaxed">
-              <span className="font-bold text-[#B16938]">Turbo Mode:</span>{' '}
-              Using GPU acceleration for 3.5× faster rendering.
+              <span className="font-bold text-[#B16938]">Turbo Mode:</span> Using GPU acceleration for 3.5× faster rendering.
             </p>
           </div>
 
