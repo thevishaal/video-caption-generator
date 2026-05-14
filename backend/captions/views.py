@@ -214,8 +214,7 @@ class VideoCaptionExportView(APIView):
         from videos.models import ExportJob
         from videos.serializers import ExportRequestSerializer, ExportJobSerializer
 
-        video = get_object_or_404(Video, pk=video_id)
-        self.check_object_permissions(request, video)
+        video = get_object_or_404(Video, pk=video_id, owner=request.user)
 
         if video.status != "ready":
             return api_error("Video not ready for export.")
@@ -224,18 +223,31 @@ class VideoCaptionExportView(APIView):
         ser.is_valid(raise_exception=True)
         data = ser.validated_data
 
-        language = data["language"]
-        use_translated = language != video.language
+        language = data["language"] 
+        original_language = video.language
+        use_translated = (
+            language != video.language and
+            Caption.objects.filter(
+                video=video,
+                language=language,
+                translated_text__isnull=False
+            ).exclude(translated_text='').exists()
+        )
 
         captions = list(
             Caption.objects.filter(video=video, language=language).order_by("start_time")
         )
         if not captions:
             captions = list(Caption.objects.filter(video=video).order_by("start_time"))
+
         if not captions:
             return api_error("No captions found. Generate captions first.")
 
-        # Create ExportJob using the existing videos model
+        use_translated = (
+                language != video.language and
+                any(c.translated_text for c in captions)
+            )
+        
         job = ExportJob.objects.create(
             video=video,
             requested_by=request.user,
@@ -293,8 +305,15 @@ class SRTDownloadView(APIView):
         captions = Caption.objects.filter(video=video, language=language).order_by("start_time")
         if not captions.exists():
             captions = Caption.objects.filter(video=video).order_by("start_time")
+            use_translated = False
         if not captions.exists():
             return api_error("No captions found.", http_status=status.HTTP_404_NOT_FOUND)
+        
+    # ✅ Agar language != original aur translated_text hai toh auto True
+        if not use_translated and language != video.language:
+            use_translated = captions.filter(
+                translated_text__isnull=False
+            ).exclude(translated_text='').exists()
 
         srt_path = save_srt_file(captions, video.id, language, use_translated=use_translated)
         response = FileResponse(

@@ -121,16 +121,15 @@ const Translate = () => {
   useEffect(() => {
     if (!videoId) return;
 
-    // Normalize any caption shape → consistent { sourceText, translatedText, ... }
-    // Captions.jsx passes { text }, API returns { original_text } — handle both
+    // Normalize any caption shape → consistent { original_text, translated_text, ... }
     const normalize = (item) => ({
-      id:             item.id,
-      start_time:     Number(item.start_time),
-      end_time:       Number(item.end_time),
-      sourceText:     item.sourceText     || item.original_text   || item.text || '',
-      translatedText: item.translatedText || item.translated_text || '',
-      language:       item.language || '',
-      time:           formatTime(Number(item.start_time)),
+      id:              item.id,
+      start_time:      Number(item.start_time),
+      end_time:        Number(item.end_time),
+      original_text:   item.original_text || item.text || '',
+      translated_text: item.translated_text || '',
+      language:        item.language || '',
+      time:            formatTime(Number(item.start_time)),
     });
 
     if (passedCaptions?.length) {
@@ -140,7 +139,6 @@ const Translate = () => {
       setIsLoadingCaptions(false);
       return;
     }
-
 
     const load = async () => {
       setIsLoadingCaptions(true);
@@ -228,17 +226,23 @@ const Translate = () => {
     showToast('Translating captions...', 'loading');
     const token = localStorage.getItem('token');
     try {
-      // Sends language code (e.g. "es") — matches backend LANGUAGE_NAMES keys
       const res = await axios.post(
         'http://127.0.0.1:8000/api/captions/translate',
         { video_id: videoId, target_language: targetLang, tone: activeTone },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       const translated = res.data?.data || res.data || [];
+      
       setCaptions((prev) =>
         prev.map((cap) => {
           const match = Array.isArray(translated) ? translated.find((t) => t.id === cap.id) : null;
-          return match ? { ...cap, translatedText: match.translated_text || cap.translatedText } : cap;
+          // ✨ CRITICAL FIX: Update the 'language' field to the selected targetLang
+          // Iske bina Preview page ko pata nahi chalega konsi language translate hui hai.
+          return match ? { 
+            ...cap, 
+            translated_text: match.translated_text || cap.translated_text,
+            language: targetLang
+          } : cap;
         })
       );
       showToast('Translation complete!', 'success');
@@ -256,20 +260,30 @@ const Translate = () => {
     showToast('Preparing preview...', 'loading');
     setTimeout(() => {
       navigate(`/editor/upload/captions/translate/preview/${videoId}`, {
-        state: { videoUrl: passedVideoUrl, styles, captions},
+        state: { 
+          videoUrl: passedVideoUrl, 
+          styles, 
+          captions,
+          activeLang: targetLang // ✨ CRITICAL FIX: Navigate karte waqt select ki hui language bhejein
+        },
       });
     }, 700);
   };
 
   const handleDiscard = () => {
     navigate(`/editor/upload/captions/translate/preview/${videoId}`, {
-      state: { videoUrl: passedVideoUrl, styles, captions },
+      state: { 
+        videoUrl: passedVideoUrl, 
+        styles, 
+        captions: passedCaptions || captions,
+        activeLang: 'en' // ✨ Discard karne pe Default English bhej de
+      },
     });
   };
 
   // ── Derived ──────────────────────────────────────────────────────────────────
   const activeCaption   = captions.find((c) => c.id === activeCaptionId);
-  const translatedCount = captions.filter((c) => c.translatedText).length;
+  const translatedCount = captions.filter((c) => c.translated_text).length;
   const progressPct     = duration ? (currentTime / duration) * 100 : 0;
 
   // Only show TRANSLATED text on video overlay
@@ -277,7 +291,7 @@ const Translate = () => {
     const seg = captions.find(
       (c) => currentTime >= c.start_time && currentTime <= c.end_time
     );
-    return seg?.translatedText || null;
+    return seg?.translated_text || null;
   })();
 
   const positionClass = ({
@@ -394,12 +408,12 @@ const Translate = () => {
                     {/* 2. Text Content (Stacked Vertically, but Single Row width) */}
                     <div className="flex flex-col justify-center min-w-0 flex-1">
                       <p className="text-brand-primary font-semibold text-[13px] whitespace-nowrap overflow-hidden text-ellipsis">
-                        {caption.sourceText}
+                        {caption.original_text}
                       </p>
                       
-                      {caption.translatedText && (
+                      {caption.translated_text && (
                         <p className="text-[13px] text-[#4E8182] font-medium italic whitespace-nowrap overflow-hidden text-ellipsis border-t border-slate-100 mt-1 pt-1">
-                          {caption.translatedText}
+                          {caption.translated_text}
                         </p>
                       )}
                      
@@ -547,15 +561,12 @@ const Translate = () => {
                   <div className="w-full h-full flex items-end justify-center p-4 bg-gradient-to-br from-slate-500 to-slate-700">
                     <div className="bg-[#2D333A]/90 backdrop-blur-md px-6 py-3.5 rounded-xl w-11/12 text-center shadow-lg mb-3">
                       <p className="text-white font-semibold text-sm tracking-wide line-clamp-2">
-                        {activeCaption?.translatedText || '[ Translation Pending ]'}
+                        {activeCaption?.translated_text || '[ Translation Pending ]'}
                       </p>
                     </div>
                   </div>
                 )}
               </div>
-
-              {/* Draggable timeline scrubber */}
-             
 
               {/* Translation text preview */}
               <div className="px-6 pb-6 pt-2">
@@ -573,8 +584,8 @@ const Translate = () => {
                     </div>
                   ) : (
                     <p className="text-[#4E8182] font-medium text-sm leading-relaxed pl-2">
-                      {activeCaption?.translatedText
-                        ? `"${activeCaption.translatedText}"`
+                      {activeCaption?.translated_text
+                        ? `"${activeCaption.translated_text}"`
                         : <span className="italic opacity-60">Click "Generate Translation" to preview text here.</span>}
                     </p>
                   )}

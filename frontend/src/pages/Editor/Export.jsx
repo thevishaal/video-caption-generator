@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams } from "react-router-dom";
+import { useParams, useLocation } from "react-router-dom";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // API LAYER  — all network calls live here, nothing else touches fetch()
@@ -55,8 +55,8 @@ const buildVideoDownloadUrl = (videoId) =>
   `${API_BASE}/videos/${videoId}/download/`;
 
 // GET  /api/captions/videos/:videoId/download-srt?language=…
-const buildSrtDownloadUrl = (videoId, language = 'en') =>
-  `${API_BASE}/captions/videos/${videoId}/download-srt?language=${language}`;
+const buildSrtDownloadUrl = (videoId, language = 'en', translated = false) =>
+  `${API_BASE}/captions/videos/${videoId}/download-srt?language=${language}&translated=${translated}`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STATIC UI OPTIONS  — zero mock data here, only labels / IDs
@@ -107,8 +107,14 @@ function estimateSize(formatId, resolutionId, isSrt) {
  *   videoId   {string}  UUID of the video to export  (required)
  *   language  {string}  caption language code         (default "en")
  */
-const Export = ({language = 'en' }) => {
+const Export = () => {
   const { videoId } = useParams();
+
+  const location = useLocation();  // import bhi add karo
+  const [selectedLanguage, setSelectedLanguage] = useState(
+    location.state?.activeLang || 'en'
+  );
+  const useTranslated = selectedLanguage !== 'en';
 
   // ── Video data from backend ──────────────────────────────────────────────
   const [videoData,  setVideoData]  = useState(null);
@@ -144,6 +150,21 @@ const Export = ({language = 'en' }) => {
       .then((data) => { setVideoData(data); setIsLoading(false); })
       .catch((err)  => { setLoadError(err.message); setIsLoading(false); });
   }, [videoId]);
+
+
+
+  const LANGUAGES = [
+  { id: 'en', label: 'English' },
+  { id: 'hi', label: 'Hindi' },
+  { id: 'es', label: 'Spanish' },
+  { id: 'fr', label: 'French' },
+  { id: 'de', label: 'German' },
+  { id: 'ar', label: 'Arabic' },
+  { id: 'pt', label: 'Portuguese' },
+  { id: 'ja', label: 'Japanese' },
+  { id: 'ko', label: 'Korean' },
+  { id: 'zh', label: 'Chinese' },
+];
 
   // ── 2. Cleanup timers on unmount ─────────────────────────────────────────
   useEffect(() => () => {
@@ -188,6 +209,12 @@ const Export = ({language = 'en' }) => {
 
   // ── 5. Kick off export ────────────────────────────────────────────────────
   const handleExport = async () => {
+
+
+      if (isSrt) {
+        handleDownload();
+        return;
+      }
     setExportPhase('submitting');
     setProgress(0);
     setEstimatedTime('--:--');
@@ -197,8 +224,9 @@ const Export = ({language = 'en' }) => {
       const job = await startVideoExport(videoId, {
         export_format: isSrt ? 'srt' : selectedFormat,
         resolution:    selectedRes,
-        language,
-        caption_mode: isSrt ? "srt" : "burned",
+        language:     selectedLanguage, 
+        caption_mode: "burned",
+        use_translated:  useTranslated, 
       });
 
       setExportJobId(job.id);
@@ -215,9 +243,12 @@ const Export = ({language = 'en' }) => {
   // ── 6. Download the exported file ─────────────────────────────────────────
   const handleDownload = async () => {
     const url = isSrt
-      ? buildSrtDownloadUrl(videoId, language)
+      ? buildSrtDownloadUrl(videoId, selectedLanguage, useTranslated)
       : buildVideoDownloadUrl(videoId);
+    
+    
 
+      
     const token =
       localStorage.getItem('token') ||
       sessionStorage.getItem('token') ||
@@ -230,8 +261,8 @@ const Export = ({language = 'en' }) => {
       if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
       const blob = await res.blob();
       const name = isSrt
-        ? `captions_${videoId}_${language}.srt`
-        : `${videoData?.title || videoId}_${selectedRes}.${selectedFormat}`;
+        ? `captions_${videoId}_${selectedLanguage}.srt`
+        : `${videoData?.title || videoId}_${selectedRes}_${selectedLanguage}.${selectedFormat}`;
 
       const href = window.URL.createObjectURL(blob);
       const a    = document.createElement('a');

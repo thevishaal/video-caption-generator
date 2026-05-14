@@ -71,6 +71,7 @@ const Captions = () => {
   const [loadingMessage, setLoadingMessage] = useState("Loading...");
 
   const videoRef = useRef(null);
+  const [isVideoReady, setIsVideoReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -179,6 +180,7 @@ const Captions = () => {
       setDuration(video.duration);
       setVideoDimensions({ width: video.videoWidth, height: video.videoHeight });
     }
+    setIsVideoReady(true);
   };
 
   const togglePlay = () => {
@@ -197,15 +199,31 @@ const Captions = () => {
   };
 
   // ── Caption click: jump + play + highlight + sync ───────────────────────────
-  const handleCaptionClick = useCallback((segment) => {
-    if (!videoRef.current) return;
-    videoRef.current.currentTime = segment.start_time;
-    videoRef.current.play();
-    setCurrentTime(segment.start_time);
-    setActiveSegmentId(segment.id);
-  }, []);
+ const handleCaptionClick = useCallback((segment) => {
+  if (!videoRef.current || !isVideoReady) return;
+
+  const video = videoRef.current;
+  video.currentTime = segment.start_time;
+
+  video.play().catch(() => {}); // safer autoplay handling
+
+  setCurrentTime(segment.start_time);
+  setActiveSegmentId(segment.id);
+}, [isVideoReady]);
 
   // ── Timeline interactions ───────────────────────────────────────────────────
+
+
+      const hasInitialized = useRef(false);
+
+useEffect(() => {
+  if (!isVideoReady || segments.length === 0) return;
+  if (hasInitialized.current) return;
+
+  setCurrentTime(0);
+  hasInitialized.current = true;
+}, [isVideoReady, segments]);
+
   const getTimeFromTimelineX = useCallback(
     (clientX) => {
       if (!timelineRef.current) return 0;

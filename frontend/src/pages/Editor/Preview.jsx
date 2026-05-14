@@ -82,6 +82,9 @@ const Preview = () => {
   const passedCaptions  = location.state?.captions  || [];
   const passedStyles    = location.state?.styles    || {};
 
+  // ✨ FIX: Array ke deep changes ko detect karne ke liye stringify
+  const passedCaptionsString = JSON.stringify(passedCaptions);
+
   // Clean video name — strip extension, never show videoId
   const passedVideoName = location.state?.videoName
     ? location.state.videoName.replace(/\.[^/.]+$/, '')
@@ -102,17 +105,19 @@ const Preview = () => {
   };
 
   // ── State ──
-  const [captions,        setCaptions]        = useState([]);
+  const [captions,           setCaptions]        = useState([]);
   const [activeCaptionId, setActiveCaptionId] = useState(null);
-  const [isExporting,     setIsExporting]     = useState(false);
-  const [exportProgress,  setExportProgress]  = useState(0);
-  const [toast,           setToast]           = useState(null);
-  const [videoRatio,      setVideoRatio]      = useState(null);
+  const [isExporting,        setIsExporting]     = useState(false);
+  const [exportProgress,     setExportProgress]  = useState(0);
+  const [toast,              setToast]           = useState(null);
+  const [videoRatio,         setVideoRatio]      = useState(null);
 
-  const [activeLang,      setActiveLang]      = useState('en');
-  const [showAddLang,     setShowAddLang]     = useState(false);
+  // ✨ FIX: Agar return aate waqt pehle se activeLang state mein hai toh use karein, warna 'en'
+  const [activeLang,         setActiveLang]      = useState(location.state?.activeLang || 'en');
+  
+  const [showAddLang,        setShowAddLang]     = useState(false);
   const [selectedNewLang, setSelectedNewLang] = useState('fr');
-  const [addedLangs,      setAddedLangs]      = useState([]);
+  const [addedLangs,         setAddedLangs]      = useState([]);
 
   const videoRef    = useRef(null);
   const timelineRef = useRef(null);
@@ -129,27 +134,47 @@ const Preview = () => {
     if (!passedCaptions?.length) return;
     const normalized = passedCaptions
       .map((item) => ({
-        id:             item.id,
-        start_time:     Number(item.start_time),
-        end_time:       Number(item.end_time),
-        sourceText:     item.sourceText     || item.original_text || item.text || '',
-        translatedText: item.translatedText || item.translated_text || '',
-        language:       item.language || '',
-        time:           formatTime(Number(item.start_time)),
+        id:              item.id,
+        start_time:      Number(item.start_time),
+        end_time:        Number(item.end_time),
+        original_text:    item.original_text    || item.original_text || item.text || '',
+        translated_text: item.translated_text?.trim() || item.translated_text || '',
+        language:        item.language || '',
+        time:            formatTime(Number(item.start_time)),
       }))
       .sort((a, b) => a.start_time - b.start_time);
 
     setCaptions(normalized);
     if (normalized.length) setActiveCaptionId(normalized[0].id);
 
-    // Auto-detect translated languages
-    const langs = [...new Set(normalized.filter(c => c.language && c.language !== 'en').map(c => c.language))];
-    setAddedLangs(langs.map(code => ({
+    // Auto-detect ONLY languages that actually have translations
+    const langMap = new Map();
+
+    normalized.forEach((c) => {
+      const hasTranslation = c.translated_text?.trim();
+
+      if (!hasTranslation) return;        // ❌ skip empty translations
+      if (c.language === 'en') return;    // ❌ skip English
+
+      langMap.set(c.language, true);
+    });
+
+    const langs = Array.from(langMap.keys());
+    const newAddedLangs = langs.map(code => ({
       code,
-      label:  LANGUAGE_OPTIONS.find(l => l.code === code)?.label || code,
+      label: LANGUAGE_OPTIONS.find(l => l.code === code)?.label || code,
       status: 'generated',
-    })));
-  }, []); // eslint-disable-line
+    }));
+
+    setAddedLangs(newAddedLangs);
+
+    // ✨ FIX: Jab Translate page se aao toh translated language automatically select ho jaye
+    if (!location.state?.activeLang && newAddedLangs.length > 0) {
+      setActiveLang(newAddedLangs[0].code);
+    }
+
+  // ✨ FIX: Dependency array mein passedCaptionsString aur location.state add kiya
+  }, [passedCaptionsString, location.state?.activeLang]); // eslint-disable-line
 
   // ── Sync active caption ──
   useEffect(() => {
@@ -197,27 +222,22 @@ const Preview = () => {
 
   // ── Export (unchanged) ──
 
-
-const handleExport = () => {
-  navigate(
-    `/editor/upload/captions/translate/preview/export/${videoId}`,
-    {
-      state: {
-        videoId,
-        videoUrl: passedVideoUrl,
-        captions,
-        styles,
-        activeLang,
-        languageLabel: activeLangLabel,
-        videoName: passedVideoName,
-      },
-    }
-  );
-};
-
-
-
-
+  const handleExport = () => {
+    navigate(
+      `/editor/upload/captions/translate/preview/export/${videoId}`,
+      {
+        state: {
+          videoId,
+          videoUrl: passedVideoUrl,
+          captions,
+          styles,
+          activeLang,
+          languageLabel: activeLangLabel,
+          videoName: passedVideoName,
+        },
+      }
+    );
+  };
 
   // ── Add language ──
   const handleAddLanguage = () => {
@@ -234,12 +254,17 @@ const handleExport = () => {
   const isPortrait     = videoRatio === 'portrait';
   const stylePreviewBg = `rgba(${bgRgb}, ${styles.bgOpacity / 100})`;
 
-  // STRICT language rule: 'en' → sourceText only | other → translatedText only (no mixing)
+  // STRICT language rule: 'en' → original_text only | other → translated_text only (no mixing)
   const activeSubtitle = (() => {
     const seg = captions.find(c => currentTime >= c.start_time && currentTime <= c.end_time);
     if (!seg) return null;
-    if (activeLang === 'en') return seg.sourceText || null;
-    return seg.translatedText || null; // no fallback to sourceText
+    if (activeLang === 'en') {
+      return seg.original_text || seg.original_text || null;
+    }
+
+    return seg.translated_text?.trim()
+      ? seg.translated_text
+      : null;
   })();
 
   const positionClass = ({
@@ -282,12 +307,8 @@ const handleExport = () => {
 
         {/* ══════════════════════════════════════════════════════════════════
             STICKY TOP NAV BAR
-            [← Back | Stage] ···· [Video Name] ···· [Save Draft | Export →]
         ══════════════════════════════════════════════════════════════════ */}
         <nav className="top-nav sticky w-full p-10 top-0 z-50 bg-white h-14 flex items-center justify-center mx-auto md:px-6 gap-2 shrink-0">
-
-          {/* LEFT — Back + badges */}
-          
 
           {/* CENTER — Clean video name only, no ID */}
           <div className="flex w-full items-center justify-start">
@@ -331,11 +352,6 @@ const handleExport = () => {
             BODY  — Left Sidebar | Center Video | Right (reserved)
         ══════════════════════════════════════════════════════════════════ */}
         <div className="flex flex-1 overflow-hidden" style={{ height: 'calc(100vh - 56px)' }}>
-
-          {/* ════════════════════
-              LEFT SIDEBAR
-          ════════════════════ */}
-         
 
           {/* ════════════════════
               CENTER — Video (dominant)
@@ -440,7 +456,7 @@ const handleExport = () => {
               <div className="mt-4 flex items-center gap-3 text-xs text-slate-400 font-medium fade-up flex-wrap justify-center">
                 <span><span className="font-bold text-slate-600">{captions.length}</span> segments</span>
                 <span className="text-slate-300">·</span>
-                <span><span className="font-bold text-slate-600">{captions.filter(c => c.translatedText).length}</span> translated</span>
+                <span><span className="font-bold text-slate-600">{captions.filter(c => c.translated_text).length}</span> translated</span>
                 <span className="text-slate-300">·</span>
                 <span>{isPortrait ? '9:16 Portrait' : '16:9 Landscape'}</span>
                 <span className="text-slate-300">·</span>
@@ -450,10 +466,8 @@ const handleExport = () => {
           </main>
 
           {/* ════════════════════
-              RIGHT — Reserved
+              RIGHT — Sidebar
           ════════════════════ */}
-    
-
            <aside className="w-72 shrink-0 bg-white border-r border-slate-200 overflow-y-auto custom-scrollbar py-5 px-4 flex flex-col gap-5 fade-in">
 
             {/* ─── Subtitle Style ─── */}
