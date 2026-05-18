@@ -72,7 +72,12 @@ def _build_ass(captions, first, use_translated):
     bold       = 1 if getattr(first, "bold",   False) else 0
     italic     = 1 if getattr(first, "italic", False) else 0
     alignment  = ASS_ALIGNMENT.get(getattr(first, "position", "bottom-center") if first else "bottom-center", 2)
-    back_color = _rgba_to_ass_color(getattr(first, "background_color", "rgba(0,0,0,0.6)") if first else "rgba(0,0,0,0.6)")
+    
+    # Safely extract background variables and calculate exact ASS Alpha
+    bg_color_val = getattr(first, "background_color", "#000000") if first else "#000000"
+    bg_opacity_val = getattr(first, "bg_opacity", 40) if first else 40
+    back_color = _convert_bg_to_ass(bg_color_val, bg_opacity_val)
+    
     margin_v   = 20 if alignment in (1, 2, 3) else 10
 
     header = f"""[Script Info]
@@ -88,9 +93,27 @@ Style: Default,{font_name},{font_size},{font_color},&H000000FF,&H00000000,{back_
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-    lines = [header]
+    lines = [header.strip()]
+    
+    # Establish fallback baseline for ALL CAPS flag
+    global_caps = getattr(first, "is_caps", False) if first else False
+
     for cap in captions:
-        text  = (cap.translated_text if use_translated and cap.translated_text else cap.original_text).strip().replace("\n", "\\N")
+        text = (cap.translated_text if use_translated and cap.translated_text else cap.original_text)
+        if not text:
+            continue
+            
+        text = text.strip()
+        
+        # --- FEATURE 1: ALL CAPS (Render-time only) ---
+        cap_is_caps = getattr(cap, "is_caps", global_caps)
+        if cap_is_caps:
+            text = text.upper()
+            
+        # --- FEATURE 4: ASS TEXT SAFETY ---
+        # Prevent curly brace/comma parsing errors in libass/ffmpeg
+        text = text.replace(",", "\\,").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
+        
         lines.append(f"Dialogue: 0,{_to_ass_time(cap.start_time)},{_to_ass_time(cap.end_time)},Default,,0,0,0,,{text}")
     return "\n".join(lines)
 
@@ -101,15 +124,41 @@ def _to_ass_time(seconds):
 
 
 def _hex_to_ass_color(hex_color):
-    h = hex_color.lstrip("#")
+    h = str(hex_color).lstrip("#")
     return f"&H00{h[4:6]}{h[2:4]}{h[0:2]}" if len(h) == 6 else "&H00FFFFFF"
 
 
-def _rgba_to_ass_color(rgba):
+def _convert_bg_to_ass(color_str, opacity):
+    """
+    Handles Feature 2 & 3: Background Opacity Fix & Fallbacks.
+    Converts either an old rgba() string or hex string + 0-100 opacity into ASS format.
+    ASS format needs strictly calculated Alpha 0-255 (0 = solid, 255 = transparent).
+    """
     try:
-        inner = rgba.strip().lstrip("rgba(").rstrip(")")
-        r, g, b, a = [p.strip() for p in inner.split(",")]
-        alpha = int((1.0 - float(a)) * 255)
-        return f"&H{alpha:02X}{int(b):02X}{int(g):02X}{int(r):02X}"
-    except Exception:
-        return "&H99000000"
+        opacity = int(opacity)
+    except (ValueError, TypeError):
+        opacity = 40  # Safe fallback
+        
+    opacity = max(0, min(100, opacity))
+    alpha_val = int((100 - opacity) * 255 / 100)
+    alpha_hex = f"{alpha_val:02X}"
+    
+    color_str = str(color_str).strip()
+    
+    # Backward compatibility: Try to parse older RGBA outputs from older clients
+    if color_str.startswith("rgba"):
+        try:
+            inner = color_str.lstrip("rgba(").rstrip(")")
+            r, g, b, _ = [p.strip() for p in inner.split(",")]
+            return f"&H{alpha_hex}{int(b):02X}{int(g):02X}{int(r):02X}"
+        except Exception:
+            return f"&H{alpha_hex}000000"
+            
+    # Process standard hex output
+    h = color_str.lstrip("#")
+    if len(h) == 6:
+        return f"&H{alpha_hex}{h[4:6]}{h[2:4]}{h[0:2]}"
+    elif len(h) == 3:
+        return f"&H{alpha_hex}{h[2]}{h[2]}{h[1]}{h[1]}{h[0]}{h[0]}"
+        
+    return f"&H{alpha_hex}000000"

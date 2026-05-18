@@ -1,6 +1,9 @@
 import React from 'react'
+import { useNavigate } from 'react-router-dom'
 
 const HeroSection = () => {
+  const navigate = useNavigate()
+
   return (
     <div>
         <section className="px-6 py-10 md:py-16 lg:py-24 lg:px-12 max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-10 lg:gap-16">
@@ -24,7 +27,7 @@ const HeroSection = () => {
 
           {/* Action Buttons */}
           <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 pt-2">
-            <button className="w-full sm:w-auto bg-[#0F4C5C] hover:bg-[#0A3642] text-white px-8 py-3.5 rounded-md font-semibold flex items-center justify-center gap-3 transition-all duration-300 hover:-translate-y-1 shadow-lg hover:shadow-[#0F4C5C]/40 group">
+            <button onClick={() => navigate('/login')} className="w-full sm:w-auto bg-[#0F4C5C] hover:bg-[#0A3642] text-white px-8 py-3.5 rounded-md font-semibold flex items-center justify-center gap-3 transition-all duration-300 hover:-translate-y-1 shadow-lg hover:shadow-[#0F4C5C]/40 group">
               Get Started 
               <i className="fa-solid fa-arrow-right transition-transform group-hover:translate-x-1"></i>
             </button>

@@ -34,6 +34,7 @@ def _translate_chunk(texts: list[str], lang_name: str) -> list[str]:
         f"Return ONLY a JSON array of translated strings in the same order.\n"
         f"No explanations, no markdown fences.\n\n{numbered}"
     )
+    
     try:
         response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -49,14 +50,41 @@ def _translate_chunk(texts: list[str], lang_name: str) -> list[str]:
             timeout=60,
         )
         response.raise_for_status()
-        raw = response.json()["choices"][0]["message"]["content"].strip()
-        # Strip markdown code fences if model includes them
+        
+        # Safely extract raw text
+        raw = response.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        
+        # Robustly strip markdown code fences if model includes them
         if raw.startswith("```"):
-            raw = raw.split("```")[1].lstrip("json").strip()
-        translated = json.loads(raw)
-        if isinstance(translated, list) and len(translated) == len(texts):
-            return [str(t) for t in translated]
-        raise ValueError("Unexpected response length from translation model.")
+            raw = raw.strip("`").strip()
+            if raw.lower().startswith("json"):
+                raw = raw[4:].strip()
+        
+        # Parse JSON
+        try:
+            translated = json.loads(raw)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing failed for translation chunk: {e}. Raw: {raw[:100]}...")
+            return texts  # Cannot iterate through broken JSON; full chunk fallback required
+            
+        # Ensure we have a list to work with
+        if not isinstance(translated, list):
+            logger.warning(f"Translation model returned {type(translated).__name__} instead of a list.")
+            return texts
+
+        # Enforce exact length and apply per-item fallback
+        results = []
+        for i, original_text in enumerate(texts):
+            # Check if the translated index exists and contains a valid string
+            if i < len(translated) and translated[i]:
+                results.append(str(translated[i]))
+            else:
+                # Fallback to the original text if missing or empty
+                logger.warning(f"Missing translation for item {i}. Falling back to original.")
+                results.append(original_text)
+                
+        return results
+
     except Exception as e:
-        logger.error(f"Translation chunk failed: {e}")
+        logger.error(f"Translation chunk failed with exception: {e}")
         return texts  # fallback: return originals unchanged

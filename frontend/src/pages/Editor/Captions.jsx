@@ -199,30 +199,28 @@ const Captions = () => {
   };
 
   // ── Caption click: jump + play + highlight + sync ───────────────────────────
- const handleCaptionClick = useCallback((segment) => {
-  if (!videoRef.current || !isVideoReady) return;
+  const handleCaptionClick = useCallback((segment) => {
+    if (!videoRef.current || !isVideoReady) return;
 
-  const video = videoRef.current;
-  video.currentTime = segment.start_time;
+    const video = videoRef.current;
+    video.currentTime = segment.start_time;
 
-  video.play().catch(() => {}); // safer autoplay handling
+    video.play().catch(() => {}); // safer autoplay handling
 
-  setCurrentTime(segment.start_time);
-  setActiveSegmentId(segment.id);
-}, [isVideoReady]);
+    setCurrentTime(segment.start_time);
+    setActiveSegmentId(segment.id);
+  }, [isVideoReady]);
 
   // ── Timeline interactions ───────────────────────────────────────────────────
+  const hasInitialized = useRef(false);
 
+  useEffect(() => {
+    if (!isVideoReady || segments.length === 0) return;
+    if (hasInitialized.current) return;
 
-      const hasInitialized = useRef(false);
-
-useEffect(() => {
-  if (!isVideoReady || segments.length === 0) return;
-  if (hasInitialized.current) return;
-
-  setCurrentTime(0);
-  hasInitialized.current = true;
-}, [isVideoReady, segments]);
+    setCurrentTime(0);
+    hasInitialized.current = true;
+  }, [isVideoReady, segments]);
 
   const getTimeFromTimelineX = useCallback(
     (clientX) => {
@@ -319,32 +317,30 @@ useEffect(() => {
 
   const activeSegment = segments.find((s) => s.id === activeSegmentId);
 
-   // ── Subtitle overlay position ───────────────────────────────────────────────
- // ── 1. Subtitle overlay position mapping ──────────────────────────────────────
-const getPositionStyle = () => {
-  // We use Flexbox alignment on a full-size overlay wrapper.
-  // alignItems handles vertical (top/bottom), justifyContent handles horizontal (left/center/right).
-  const map = {
-    "top-left":      { alignItems: "flex-start", justifyContent: "flex-start", textAlign: "left" },
-    "top-center":    { alignItems: "flex-start", justifyContent: "center",     textAlign: "center" },
-    "top-right":     { alignItems: "flex-start", justifyContent: "flex-end",   textAlign: "right" },
-    "bottom-left":   { alignItems: "flex-end",   justifyContent: "flex-start", textAlign: "left" },
-    "bottom-center": { alignItems: "flex-end",   justifyContent: "center",     textAlign: "center" },
-    "bottom-right":  { alignItems: "flex-end",   justifyContent: "flex-end",   textAlign: "right" },
+  // ── Subtitle overlay position ───────────────────────────────────────────────
+  const getPositionStyle = () => {
+    // We use Flexbox alignment on a full-size overlay wrapper.
+    const map = {
+      "top-left":      { alignItems: "flex-start", justifyContent: "flex-start", textAlign: "left" },
+      "top-center":    { alignItems: "flex-start", justifyContent: "center",     textAlign: "center" },
+      "top-right":     { alignItems: "flex-start", justifyContent: "flex-end",   textAlign: "right" },
+      "bottom-left":   { alignItems: "flex-end",   justifyContent: "flex-start", textAlign: "left" },
+      "bottom-center": { alignItems: "flex-end",   justifyContent: "center",     textAlign: "center" },
+      "bottom-right":  { alignItems: "flex-end",   justifyContent: "flex-end",   textAlign: "right" },
+    };
+    return map[styles.position] || map["bottom-center"];
   };
-  return map[styles.position] || map["bottom-center"];
-};
 
-const posStyle = getPositionStyle();
+  const posStyle = getPositionStyle();
 
-// Parse HEX background color safely
-const parseColor = (hex, opacity) => {
-  if (!hex || hex.length < 7) return "rgba(0,0,0,0.7)";
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r}, ${g}, ${b}, ${opacity / 100})`;
-};
+  // Parse HEX background color safely
+  const parseColor = (hex, opacity) => {
+    if (!hex || hex.length < 7) return "rgba(0,0,0,0.7)";
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${opacity / 100})`;
+  };
 
   // ── Apply Changes ─────────────────────────────────────────────────────────
   const handleApplyChanges = async () => {
@@ -377,8 +373,10 @@ const parseColor = (hex, opacity) => {
           font_size: styles.fontSize,
           font_color: styles.textColor,
           background_color: styles.bgColor,
+          background_opacity: styles.bgOpacity, // Added to Payload
           bold: styles.isBold,
           italic: styles.isItalic,
+          is_caps: styles.isCaps, // Added to Payload
           alignment: styles.position.includes("center")
             ? "center"
             : styles.position.includes("right")
@@ -409,7 +407,6 @@ const parseColor = (hex, opacity) => {
   );
 
   // ── Compute video container max dimensions ──────────────────────────────────
-  // For portrait video: cap height so it doesn't dominate. For landscape: full width.
   const aspectRatioValue = videoDimensions.width / videoDimensions.height;
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -464,11 +461,11 @@ const parseColor = (hex, opacity) => {
         <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
       )}
 
-      {/* ── Root layout: 3 cols on xl, stacked on mobile ── */}
+      {/* ── Root layout ── */}
       <div className="flex flex-col xl:flex-row min-h-screen xl:h-screen bg-[#F4F6F8] font-sans overflow-y-auto xl:overflow-hidden w-full">
 
         {/* ══════════════════════════════════════════════════════════════
-            LEFT PANEL — Segment List (compact)
+            LEFT PANEL — Segment List
         ══════════════════════════════════════════════════════════════ */}
         <aside className="xl:w-72 order-2 xl:order-1 bg-[#F4F6F8] border-b xl:border-b-0 xl:border-r border-slate-200 flex flex-col xl:h-full z-10 flex-shrink-0"
           style={{ minHeight: 0 }}
@@ -576,21 +573,18 @@ const parseColor = (hex, opacity) => {
         </aside>
 
         {/* ══════════════════════════════════════════════════════════════
-            CENTER PANEL — Video Player (primary focus)
+            CENTER PANEL — Video Player
         ══════════════════════════════════════════════════════════════ */}
         <main className="xl:flex-1 order-1 xl:order-2 flex flex-col items-center justify-center p-4 bg-white relative z-0 xl:overflow-y-auto min-w-0">
 
-          {/* ── Video wrapper: aspect-ratio aware, no stretching ── */}
           <div
             className="relative w-full flex items-center justify-center"
             style={{
-              // For portrait: limit width so it doesn't blow up. For landscape: full width.
               maxWidth: isPortrait
                 ? `min(100%, calc((100vh - 280px) * ${aspectRatioValue}))`
                 : "100%",
             }}
           >
-            {/* Video container: correct aspect ratio */}
             <div
               className="relative w-full bg-black rounded-2xl shadow-xl border border-slate-100 overflow-hidden"
               style={{ aspectRatio: `${videoDimensions.width} / ${videoDimensions.height}` }}
@@ -615,44 +609,40 @@ const parseColor = (hex, opacity) => {
                 onLoadedMetadata={handleLoadedMetadata}
               />
 
-   {/* Subtitle overlay — positioned absolutely covering the entire video box */}
-{activeSegment && (
-  <div
-    key={activeSegment.id}
-    /* Added 'inset-0 flex p-4' to cover the video area and pad the edges */
-    className="absolute inset-0 flex p-4 pointer-events-none subtitle-animate"
-    style={{
-      alignItems: posStyle.alignItems,
-      justifyContent: posStyle.justifyContent,
-    }}
-  >
-    {/* This is the actual caption box that respects the flex alignment */}
-    <div
-      className="rounded-lg px-3 py-1.5 shadow-lg pointer-events-auto"
-      style={{
-        maxWidth: "85%",
-        backgroundColor: parseColor(styles.bgColor, styles.bgOpacity),
-      }}
-    >
-      <p
-        className="leading-snug break-words"
-        style={{
-          color: styles.textColor,
-          fontFamily: styles.typography,
-          fontWeight: styles.isBold ? "700" : "400",
-          fontStyle: styles.isItalic ? "italic" : "normal",
-          textTransform: styles.isCaps ? "uppercase" : "none",
-          fontSize: `clamp(10px, ${styles.fontSize / 16}vw + 6px, ${styles.fontSize}px)`,
-          textAlign: posStyle.textAlign,
-        }}
-      >
-        {activeSegment.text}
-      </p>
-    </div>
-  </div>
-)}
-
-              {/* Play/pause overlay icon (brief flash) */}
+              {/* Subtitle overlay */}
+              {activeSegment && (
+                <div
+                  key={activeSegment.id}
+                  className="absolute inset-0 flex p-4 pointer-events-none subtitle-animate"
+                  style={{
+                    alignItems: posStyle.alignItems,
+                    justifyContent: posStyle.justifyContent,
+                  }}
+                >
+                  <div
+                    className="rounded-lg px-3 py-1.5 shadow-lg pointer-events-auto"
+                    style={{
+                      maxWidth: "85%",
+                      backgroundColor: parseColor(styles.bgColor, styles.bgOpacity),
+                    }}
+                  >
+                    <p
+                      className="leading-snug break-words"
+                      style={{
+                        color: styles.textColor,
+                        fontFamily: styles.typography,
+                        fontWeight: styles.isBold ? "700" : "400",
+                        fontStyle: styles.isItalic ? "italic" : "normal",
+                        textTransform: styles.isCaps ? "uppercase" : "none",
+                        fontSize: `clamp(10px, ${styles.fontSize / 16}vw + 6px, ${styles.fontSize}px)`,
+                        textAlign: posStyle.textAlign,
+                      }}
+                    >
+                      {activeSegment.text}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -810,7 +800,7 @@ const parseColor = (hex, opacity) => {
         </main>
 
         {/* ══════════════════════════════════════════════════════════════
-            RIGHT PANEL — Style Settings (unchanged logic)
+            RIGHT PANEL — Style Settings
         ══════════════════════════════════════════════════════════════ */}
         <aside className="xl:w-72 order-3 xl:order-3 bg-[#F4F6F8] flex flex-col xl:h-full z-10 flex-shrink-0 border-t xl:border-t-0 xl:border-l border-slate-200">
           <div className="px-4 py-3 border-b border-slate-200/50 bg-white/60 backdrop-blur-sm sticky top-0 z-20">
@@ -955,10 +945,11 @@ const parseColor = (hex, opacity) => {
             <div>
               <h3 className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-2.5">Preview</h3>
               <div className="bg-slate-900 rounded-xl p-4 flex items-end justify-center min-h-[64px]">
+                {/* Applied parseColor helper to ensure dynamic opacity matches main video correctly */}
                 <div
                   className="rounded-lg px-3 py-1.5 max-w-full text-center"
                   style={{
-                    backgroundColor: `rgba(${parseInt(styles.bgColor.slice(1,3),16)},${parseInt(styles.bgColor.slice(3,5),16)},${parseInt(styles.bgColor.slice(5,7),16)},${styles.bgOpacity/100})`,
+                    backgroundColor: parseColor(styles.bgColor, styles.bgOpacity),
                   }}
                 >
                   <p

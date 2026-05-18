@@ -9,8 +9,8 @@ const LoginNav = () => {
   // Landing page navigation links (example)
   const navLinks = [
     { name: 'Home', path: '/' },
-    { name: 'Features', path: '#features' },
-    { name: 'How it Works', path: '#how-it-works' },
+    { name: 'Features', path: '/#features' },
+    { name: 'How it Works', path: '/#how-it-works' },
     
   ];
 
@@ -35,13 +35,16 @@ const LoginNav = () => {
           {/* Center: Marketing Links (Hidden on Mobile) */}
           <div className="hidden md:flex items-center gap-10">
             {navLinks.map((link) => (
-              <a
-                key={link.name}
-                href={link.path}
-                className="text-[15px] font-semibold text-slate-500 hover:text-[#0F172A] transition-colors duration-200"
-              >
-                {link.name}
-              </a>
+             <a
+              key={link.name}
+              onClick={(e) => {
+                e.preventDefault();
+                navigate(link.path);
+              }}
+              className="text-[15px] font-semibold text-slate-500 hover:text-[#0F172A] transition-colors duration-200 cursor-pointer"
+            >
+              {link.name}
+            </a>
             ))}
           </div>
 
@@ -78,11 +81,13 @@ const LoginNav = () => {
         <div className="fixed inset-0 z-40 bg-white pt-20 px-6 md:hidden animate-in slide-in-from-top duration-300">
           <div className="flex flex-col gap-6 mt-8">
             {navLinks.map((link) => (
-              <a
+             <a
                 key={link.name}
-                href={link.path}
-                onClick={() => setIsMobileMenuOpen(false)}
-                className="text-2xl font-bold text-[#0F172A] border-b border-slate-100 pb-4"
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate(link.path);
+                }}
+                className="text-[15px] font-semibold text-slate-500 hover:text-[#0F172A] transition-colors duration-200 cursor-pointer"
               >
                 {link.name}
               </a>

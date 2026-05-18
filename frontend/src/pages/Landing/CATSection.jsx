@@ -1,6 +1,9 @@
 import React from 'react'
+import { useNavigate } from 'react-router-dom'
 
 const CATSection = () => {
+  const navigate = useNavigate()
+
   return (
     <div>
         <section className="px-6 py-10 md:py-16 lg:px-12 max-w-7xl mx-auto">
@@ -19,7 +22,7 @@ const CATSection = () => {
             <p className="text-white/90 mb-8 md:mb-10 max-w-xl mx-auto text-sm md:text-lg leading-relaxed">
               Join thousands of creators using The Kinetic Editor to scale their video production today.
             </p>
-            <button className="bg-white text-[#00c3d0] cursor-pointer font-bold px-8 py-4 rounded-lg shadow-xl hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 flex items-center justify-center gap-3 mx-auto">
+            <button onClick={() => navigate('/login')} className="bg-white text-[#00c3d0] cursor-pointer font-bold px-8 py-4 rounded-lg shadow-xl hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 flex items-center justify-center gap-3 mx-auto">
               Get Started For Free
             </button>
           </div>
