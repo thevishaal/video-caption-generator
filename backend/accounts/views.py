@@ -11,11 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from .utils import generate_token
 from django.conf import settings
 from .utils import async_task, send_password_reset_email, send_verification_email
-<<<<<<< HEAD
-
-=======
 from rest_framework.permissions import AllowAny
->>>>>>> origin/feat/ui
 
 
 class Home(APIView):
@@ -114,10 +110,7 @@ class ResendVerificationEmailView(APIView):
 
 
 class LoginView(APIView):
-<<<<<<< HEAD
-=======
     permission_classes = [AllowAny]
->>>>>>> origin/feat/ui
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
 
@@ -136,11 +129,7 @@ class LoginView(APIView):
     
 
 class RefreshTokenView(APIView):
-<<<<<<< HEAD
-    permission_classes = [AllowAny] 
-=======
     permission_classes = [AllowAny]
->>>>>>> origin/feat/ui
     def post(self, request):
         refresh_token = request.data.get('refresh_token')
 
@@ -183,11 +172,7 @@ class RefreshTokenView(APIView):
         
 
 class LogoutView(APIView):
-<<<<<<< HEAD
-    permission_classes = [AllowAny] 
-=======
     permission_classes = [AllowAny]
->>>>>>> origin/feat/ui
     def post(self, request):
         refresh_token = request.data.get("refresh_token")
 
@@ -304,10 +289,7 @@ class ForgotPasswordView(APIView):
         }, status=status.HTTP_400_BAD_REQUEST)
     
 class ResetPasswordView(APIView):
-<<<<<<< HEAD
-=======
     permission_classes = [AllowAny]
->>>>>>> origin/feat/ui
     def post(self, request, token):
         serializer = ResetPasswordSerializer(data=request.data)
 
