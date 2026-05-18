@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
+      
 
     'django.contrib.admin',
     'django.contrib.auth',
@@ -38,6 +39,8 @@ INSTALLED_APPS = [
     "accounts",
     "captions",
     "videos",
+    
+
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
@@ -90,6 +93,10 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+ 
+# Optional — override translation model (default: llama3-70b-8192)
+GROQ_TRANSLATION_MODEL = "llama3-70b-8192"
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases

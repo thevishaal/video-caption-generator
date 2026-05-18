@@ -145,3 +145,6 @@ class ExportJobSerializer(serializers.ModelSerializer):
             return None
         url = f"/api/videos/{obj.video_id}/download/"
         return request.build_absolute_uri(url) if request else url
+
+
+

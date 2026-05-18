@@ -1,15 +1,15 @@
 import React from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, matchPath } from 'react-router-dom';
 
 const Sidebar = () => {
   const location = useLocation();
 
   const navItems = [
-    { id: 'upload', label: 'UPLOAD', path: '/editor/upload', icon: 'fa-solid fa-cloud-arrow-up' },
-    { id: 'captions', label: 'CAPTIONS', path: '/editor/upload/captions', icon: 'fa-solid fa-closed-captioning' },
-    { id: 'translate', label: 'TRANSLATE', path: '/editor/upload/captions/translate', icon: 'fa-solid fa-language' },
-    { id: 'preview', label: 'PREVIEW', path: '/editor/upload/captions/translate/preview', icon: 'fa-regular fa-eye' },
-    { id: 'export', label: 'EXPORT', path: '/editor/upload/captions/translate/preview/export', icon: 'fa-solid fa-arrow-up-from-bracket' },
+    { id: 'upload', label: 'UPLOAD', path: '/editor', icon: 'fa-solid fa-cloud-arrow-up' },
+    { id: 'captions', label: 'CAPTIONS', path: '/editor/upload/captions/:videoId', icon: 'fa-solid fa-closed-captioning' },
+    { id: 'translate', label: 'TRANSLATE', path: '/editor/upload/captions/translate/:videoId', icon: 'fa-solid fa-language' },
+    { id: 'preview', label: 'PREVIEW', path: '/editor/upload/captions/translate/preview/:videoId', icon: 'fa-regular fa-eye' },
+    { id: 'export', label: 'EXPORT', path: '/editor/upload/captions/translate/preview/export/:videoId', icon: 'fa-solid fa-arrow-up-from-bracket' },
   ];
 
   return (
@@ -36,12 +36,18 @@ const Sidebar = () => {
       {/* --- NAVIGATION LINKS --- */}
       <nav className="flex flex-col gap-3 items-center lg:items-stretch">
         {navItems.map((item) => {
-          const isActive = location.pathname === item.path;
+          // Use matchPath to correctly identify active dynamic routes (like /:videoId)
+          const isActive = !!matchPath(
+            { path: item.path, end: true }, 
+            location.pathname
+          );
           
           return (
             <NavLink
               key={item.id}
-              to={item.path}
+              // If the tab is active, keep the current real URL (e.g. /captions/123). 
+              // Otherwise, use the item.path.
+              to={isActive ? location.pathname : item.path}
               title={item.label} // Shows tooltip on hover for icon-only mode
               className={`flex items-center justify-center lg:justify-start lg:gap-3 p-3 lg:px-4 lg:py-3 rounded-xl transition-all duration-200 font-bold text-[13px] tracking-wide ${
                 isActive 
