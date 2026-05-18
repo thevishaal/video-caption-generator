@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState , useRef} from "react";
 import axios from "axios";
 import { useParams, useNavigate } from "react-router-dom";
 import { ToastContainer, toast } from "react-toastify";
@@ -13,9 +13,14 @@ const VerifyEmail = () => {
   const [message, setMessage] = useState("Verifying...");
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (token) verifyEmail();
-  }, [token]);
+  const hasRun = useRef(false);
+
+useEffect(() => {
+  if (!token || hasRun.current) return;
+
+  hasRun.current = true;
+  verifyEmail();
+}, [token]);
 
   const verifyEmail = async () => {
     setLoading(true);
@@ -47,7 +52,7 @@ const VerifyEmail = () => {
 
   const handleResend = async () => {
     if (!email) {
-      toast.warning("Enter email first"); // 
+      toast.warning("Enter email first"); 
       return;
     }
 

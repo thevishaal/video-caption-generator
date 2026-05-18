@@ -4,6 +4,10 @@ from .models import Caption
 
 class CaptionSerializer(serializers.ModelSerializer):
     """Used by VideoPreviewSerializer.get_captions() and all caption APIs."""
+    
+    # Explicitly declared to enforce validation rules at the API boundary
+    is_caps = serializers.BooleanField(required=False, default=False)
+    bg_opacity = serializers.IntegerField(min_value=0, max_value=100, required=False)
 
     class Meta:
         model = Caption
@@ -12,6 +16,7 @@ class CaptionSerializer(serializers.ModelSerializer):
             "original_text", "translated_text", "language",
             "font_family", "font_size", "font_color", "background_color",
             "position", "alignment", "bold", "italic",
+            "is_caps", "bg_opacity",  # <-- New styling fields added safely
             "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
@@ -45,3 +50,7 @@ class CaptionStyleSerializer(serializers.Serializer):
     alignment = serializers.ChoiceField(choices=["left", "center", "right"], required=False)
     bold = serializers.BooleanField(required=False)
     italic = serializers.BooleanField(required=False)
+    
+    # --- NEW FIELDS ---
+    is_caps = serializers.BooleanField(required=False, default=False)
+    bg_opacity = serializers.IntegerField(min_value=0, max_value=100, required=False)

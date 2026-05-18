@@ -3,7 +3,7 @@ import React from 'react'
 const HowWorksSection = () => {
   return (
     <div>
-        <section className="px-6 py-12 md:py-20 lg:px-12 max-w-9xl mx-auto bg-[#eff4ff]" id="how-it-works">
+        <section className="px-6 py-12 md:py-20 lg:px-12 max-w-9xl mx-auto bg-[#eff4ff]">
         <div className="mb-10 md:mb-12 text-center md:text-left">
           <h2 className="text-3xl md:text-4xl font-extrabold text-[#111827] mb-4">How it Works</h2>
           <p className="text-slate-500 max-w-2xl mx-auto md:mx-0 text-sm md:text-base">

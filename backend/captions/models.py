@@ -1,6 +1,7 @@
 import uuid
 from django.db import models
 from django.conf import settings
+from django.core.validators import MinValueValidator, MaxValueValidator
 
 
 class Caption(models.Model):
@@ -33,10 +34,24 @@ class Caption(models.Model):
     font_size = models.IntegerField(default=32)
     font_color = models.CharField(max_length=20, default="#FFFFFF")
     background_color = models.CharField(max_length=50, default="rgba(0,0,0,0.6)")
+    
+    # New opacity field (0 to 100)
+    bg_opacity = models.IntegerField(
+        default=40,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Controls transparency of subtitle background for ASS generation (0-100)"
+    )
+    
     position = models.CharField(max_length=20, choices=POSITION_CHOICES, default="bottom-center")
     alignment = models.CharField(max_length=10, choices=ALIGNMENT_CHOICES, default="center")
     bold = models.BooleanField(default=False)
     italic = models.BooleanField(default=False)
+    
+    # New caps flag
+    is_caps = models.BooleanField(
+        default=False,
+        help_text="Indicates if caption text should be rendered in uppercase"
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

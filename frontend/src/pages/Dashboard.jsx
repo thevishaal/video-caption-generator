@@ -1,8 +1,10 @@
-import React from 'react'
+import React from "react";
+
 import Landing from '../pages/Landing/Landing'
 
 
 const Dashboard = () => {
+ 
   return (
     <div>
       

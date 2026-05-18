@@ -102,7 +102,7 @@ const LoginPage = () => {
   );
 
   return (
-    <div className="bg-[#FAFCFF] font-sans text-slate-800 min-h-screen flex flex-col relative overflow-hidden">
+    <div className="bg-[#FAFCFF] font-sans text-slate-800 min-h-[90vh] flex flex-col relative overflow-hidden">
       
       
      

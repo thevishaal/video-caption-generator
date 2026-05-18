@@ -133,9 +133,11 @@ class CaptionStyleView(APIView):
     """PUT /api/captions/style"""
     permission_classes = [IsAuthenticated]
 
+    # Added is_caps and bg_opacity to allowlist
     STYLE_FIELDS = [
         "font_family", "font_size", "font_color", "background_color",
         "position", "alignment", "bold", "italic",
+        "is_caps", "bg_opacity"
     ]
 
     def put(self, request):
@@ -153,16 +155,54 @@ class CaptionStyleView(APIView):
         else:
             return api_error("Provide caption_ids or video_id.")
 
-        update_kwargs = {f: data[f] for f in self.STYLE_FIELDS if f in data}
+        # Extract fields directly from request.data to capture new fields
+        # while keeping backward compatibility with the serializer's validated data
+        input_data = request.data
+        update_kwargs = {}
+
+        for field in self.STYLE_FIELDS:
+            if field in input_data:
+                val = input_data[field]
+                
+                # Validation & Normalization for bg_opacity
+                if field == "bg_opacity":
+                    try:
+                        val = int(val)
+                        # Clamp the value between 0 and 100
+                        val = max(0, min(100, val))
+                    except (ValueError, TypeError):
+                        return api_error("bg_opacity must be between 0 and 100")
+                
+                # Validation & Normalization for is_caps
+                elif field == "is_caps":
+                    if isinstance(val, str):
+                        if val.lower() == 'true':
+                            val = True
+                        elif val.lower() == 'false':
+                            val = False
+                        else:
+                            return api_error("is_caps must be boolean")
+                    elif not isinstance(val, bool):
+                        return api_error("is_caps must be boolean")
+
+                update_kwargs[field] = val
+
+        # Fallback loop: grab any remaining safe fields that might have been 
+        # cleaned by the serializer but weren't caught in request.data directly
+        for field in self.STYLE_FIELDS:
+            if field not in update_kwargs and field in data:
+                update_kwargs[field] = data[field]
+
         if not update_kwargs:
             return api_error("No style fields provided.")
 
+        # Safe update executing only on validated properties
         count = qs.update(**update_kwargs)
+        
         return api_success(
             data={"updated_fields": list(update_kwargs.keys()), "count": count},
             message=f"Style applied to {count} captions.",
         )
-
 
 # ── Caption CRUD ──────────────────────────────────────────────────────────────
 

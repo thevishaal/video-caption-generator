@@ -3,7 +3,7 @@ import React from 'react'
 const BuiltForPrecisionSection = () => {
   return (
     <div>
-        <section className="px-6 py-12 md:py-20 lg:px-12 max-w-7xl mx-auto" id="features">
+        <section className="px-6 py-12 md:py-20 lg:px-12 max-w-7xl mx-auto">
         <div className="text-center mb-10 md:mb-12">
           <h2 className="text-3xl md:text-4xl font-extrabold text-[#111827]">Built for Precision</h2>
         </div>
