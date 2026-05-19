@@ -1,16 +1,62 @@
-# React + Vite
+# Frontend Setup Guide
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Prerequisites
 
-Currently, two official plugins are available:
+Before running the frontend, make sure these are installed on your system:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Node.js
+- npm (comes with Node.js)
 
-## React Compiler
+Check installation:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+node -v
+npm -v
 
-## Expanding the ESLint configuration
+# Clone the Project
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+git clone <your-repository-url>
+
+# Go to the frontend folder:
+
+cd video-caption-generator/frontend
+
+
+# Install Dependencies
+
+npm install
+
+
+# Install Tailwind CSS v4 (Vite Setup)
+
+# Run the following command:
+
+npm install tailwindcss @tailwindcss/vite
+
+
+# Configure Vite
+
+# Update your vite.config.js or vite.config.ts:
+
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+})
+
+# Add Tailwind to CSS
+
+# In your main CSS file (src/index.css or src/app.css) add:
+
+@import "tailwindcss";
+
+
+# Start Development Server
+
+npm run dev
+
+# Frontend will run on:
+
+http://localhost:5173
