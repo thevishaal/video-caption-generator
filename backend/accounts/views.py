@@ -29,6 +29,8 @@ class Home(APIView):
 
 
 class RegisterView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
 
@@ -45,8 +47,6 @@ class RegisterView(APIView):
             "success": False,
             "errors": serializer.errors
         }, status=status.HTTP_400_BAD_REQUEST)
-    
-
 
 # ─── Verify Email ───────────────────────────────────────────────────────────
 class VerifyEmailView(APIView):

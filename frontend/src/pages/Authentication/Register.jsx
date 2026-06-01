@@ -47,7 +47,7 @@ const Register = () => {
       );
 
       if (response.status === 201) {
-        showToast.success("Account created successfully! 🎉");
+        showToast.success("Account created successfully!");
         setTimeout(() => {
           navigate("/send-verification-email");
         }, 2000);

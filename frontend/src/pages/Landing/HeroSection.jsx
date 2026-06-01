@@ -6,8 +6,8 @@ const HeroSection = () => {
 
   return (
     <div>
-        <section className="px-6 py-10 md:py-16 lg:py-24 lg:px-12 max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-10 lg:gap-16">
-        
+      <section className="px-6 py-10 md:py-16 lg:py-24 lg:px-12 max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-10 lg:gap-16">
+
         {/* Left Column: Text & CTA */}
         <div className="flex-1 space-y-6 lg:space-y-8 z-10 animate-slide-in-left text-center lg:text-left mt-8 lg:mt-0">
           <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold text-[#111827] leading-[1.1] tracking-tight">
@@ -15,10 +15,10 @@ const HeroSection = () => {
             <span className="text-[#088e9d] relative inline-block">
               subtitles
               <span className="absolute bottom-0 left-0 w-full h-2 md:h-3 bg-[#088e9d]/20 -z-10 -rotate-2"></span>
-            </span> in <br className="hidden lg:block"/>
+            </span> in <br className="hidden lg:block" />
             seconds.
           </h1>
-          
+
           <p className="text-slate-600 text-base md:text-xl max-w-lg mx-auto lg:mx-0 leading-relaxed">
             The Kinetic Editor uses advanced AI to generate precise,
             professional-grade captions. Stop manual transcribing and start
@@ -27,8 +27,11 @@ const HeroSection = () => {
 
           {/* Action Buttons */}
           <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 pt-2">
-            <button onClick={() => navigate('/login')} className="w-full sm:w-auto bg-[#0F4C5C] hover:bg-[#0A3642] text-white px-8 py-3.5 rounded-md font-semibold flex items-center justify-center gap-3 transition-all duration-300 hover:-translate-y-1 shadow-lg hover:shadow-[#0F4C5C]/40 group">
-              Get Started 
+            <button onClick={() => {
+              const isAuthenticated = !!localStorage.getItem('token');
+              navigate(isAuthenticated ? '/editor/upload' : '/login');
+            }} className="w-full sm:w-auto bg-[#0F4C5C] hover:bg-[#0A3642] text-white px-8 py-3.5 rounded-md font-semibold flex items-center justify-center gap-3 transition-all duration-300 hover:-translate-y-1 shadow-lg hover:shadow-[#0F4C5C]/40 group">
+              Get Started
               <i className="fa-solid fa-arrow-right transition-transform group-hover:translate-x-1"></i>
             </button>
             <button className="w-full sm:w-auto bg-blue-100/80 hover:bg-blue-200 text-blue-900 px-8 py-3.5 rounded-md font-semibold transition-all duration-300 hover:-translate-y-1 flex items-center justify-center gap-2">
@@ -51,7 +54,7 @@ const HeroSection = () => {
 
         {/* Right Column: Video/App Mockup */}
         <div className="flex-1 relative w-full max-w-2xl mx-auto animate-slide-up mt-10 lg:mt-0" style={{ animationDelay: '0.2s' }}>
-          
+
           {/* Floating Accuracy Badge */}
           <div className="absolute -top-4 -right-2 md:-top-6 md:-right-6 lg:-right-8 bg-white shadow-xl rounded-xl p-3 md:p-4 flex items-center gap-2 md:gap-3 z-20 animate-bounce" style={{ animationDuration: '3s' }}>
             <div className="bg-orange-100 p-1.5 md:p-2 rounded-lg text-orange-500 flex items-center justify-center">
@@ -74,7 +77,7 @@ const HeroSection = () => {
 
             {/* Video Player Area */}
             <div className="bg-[#83979D] rounded-lg aspect-[16/10] relative overflow-hidden group cursor-pointer">
-              
+
               {/* Play Button */}
               <div className="absolute inset-0 flex items-center justify-center bg-black/10 transition-colors duration-300 group-hover:bg-black/30">
                 <div className="w-12 h-12 md:w-16 md:h-16 bg-white/30 backdrop-blur-md rounded-lg flex items-center justify-center transition-transform duration-300 group-hover:scale-110 text-white text-xl md:text-2xl shadow-lg">
@@ -91,9 +94,9 @@ const HeroSection = () => {
               <div className="absolute bottom-2 md:bottom-4 left-0 w-full px-4 md:px-6 flex items-center gap-2 md:gap-3">
                 <span className="text-white/90 text-[10px] md:text-xs font-mono">0:12</span>
                 <div className="flex-1 h-1 md:h-1.5 bg-white/30 rounded-full overflow-hidden relative">
-                   <div className="absolute top-0 left-0 h-full w-[40%] bg-teal-400 rounded-full relative transition-all duration-1000">
-                     <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-2 h-2 md:w-3 md:h-3 bg-white rounded-full shadow"></div>
-                   </div>
+                  <div className="absolute top-0 left-0 h-full w-[40%] bg-teal-400 rounded-full relative transition-all duration-1000">
+                    <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-2 h-2 md:w-3 md:h-3 bg-white rounded-full shadow"></div>
+                  </div>
                 </div>
                 <span className="text-white/90 text-[10px] md:text-xs font-mono">1:45</span>
               </div>
