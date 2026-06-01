@@ -1,8 +1,13 @@
-import secrets, hashlib
-from django.conf import settings
+import logging
+import secrets
+import hashlib
 import threading
+from django.conf import settings
 from django.core.mail import send_mail
 import requests
+
+logger = logging.getLogger(__name__)
+
 
 
 def generate_token():
@@ -42,9 +47,9 @@ def send_verification_email(email, verification_link):
     response = requests.post(url, json=payload, headers=headers)
 
     if response.status_code == 201:
-        print("Email sent successfully")
+        logger.info("Verification email sent successfully.")
     else:
-        print("Email failed:", response.text)
+        logger.error(f"Verification email failed: {response.text}")
 
 def send_password_reset_email(email, reset_link):
     url = "https://api.brevo.com/v3/smtp/email"
@@ -72,6 +77,6 @@ def send_password_reset_email(email, reset_link):
     response = requests.post(url, json=payload, headers=headers)
 
     if response.status_code == 201:
-        print("Password reset email sent successfully")
+        logger.info("Password reset email sent successfully.")
     else:
-        print("Password reset email failed:", response.text)
+        logger.error(f"Password reset email failed: {response.text}")

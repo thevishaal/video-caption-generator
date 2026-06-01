@@ -12,4 +12,5 @@ urlpatterns = [
     path("forgot-password/", views.ForgotPasswordView.as_view(), name="forgot-password"),
     path("reset-password/<str:token>/", views.ResetPasswordView.as_view(), name="reset-password"),
     path("resend-verification-email/", views.ResendVerificationEmailView.as_view(), name="resend-verification-email"),
+    path("profile/update/", views.ProfileUpdateView.as_view(), name="profile-update"),
 ]

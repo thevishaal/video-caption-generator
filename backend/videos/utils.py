@@ -58,7 +58,7 @@ def get_video_metadata(file_path: str) -> dict:
         "ffprobe",
         "-v", "error",
         "-select_streams", "v:0",
-        "-show_entries", "stream=width,height,r_frame_rate,codec_name",
+        "-show_entries", "stream=width,height,r_frame_rate,codec_name,tags,side_data",
         "-show_entries", "format=duration",
         "-of", "json",
         file_path,
@@ -69,6 +69,34 @@ def get_video_metadata(file_path: str) -> dict:
     stream = (data.get("streams") or [{}])[0]
     fmt = data.get("format") or {}
 
+    # Detect rotation metadata to swap display dimensions for portrait videos
+    tags = stream.get("tags", {})
+    rotate = 0
+    if "rotate" in tags:
+        try:
+            rotate = abs(int(tags["rotate"]))
+        except ValueError:
+            pass
+
+    side_data_list = stream.get("side_data_list", [])
+    for side_data in side_data_list:
+        if "rotation" in side_data:
+            try:
+                rotate = abs(int(side_data["rotation"]))
+            except ValueError:
+                pass
+        elif side_data.get("side_data_type") == "Display Matrix":
+            try:
+                rotate = abs(int(side_data.get("rotation", 0)))
+            except ValueError:
+                pass
+
+    width = stream.get("width")
+    height = stream.get("height")
+
+    if rotate in [90, 270] and width and height:
+        width, height = height, width
+
     fps_raw = stream.get("r_frame_rate", "0/1")
     try:
         numerator, denominator = fps_raw.split("/")
@@ -78,8 +106,8 @@ def get_video_metadata(file_path: str) -> dict:
 
     return {
         "duration_seconds": float(fmt.get("duration", 0.0)),
-        "width": stream.get("width"),
-        "height": stream.get("height"),
+        "width": width,
+        "height": height,
         "fps": fps,
         "codec": stream.get("codec_name", ""),
     }

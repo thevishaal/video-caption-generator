@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { showToast } from "../../utils/toastUtils";
 
 const ForgotPassword = () => {
   const [email, setEmail] = useState("");
@@ -10,8 +9,8 @@ const ForgotPassword = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!email) return toast.error("Please enter your email address");
-    
+    if (!email) return showToast.error("Please enter your email address");
+
     setIsLoading(true);
 
     try {
@@ -26,21 +25,21 @@ const ForgotPassword = () => {
       const data = await res.json();
 
       if (res.ok && data.success !== false) {
-        toast.success(data.message || "Reset link sent to your email ✨");
+        showToast.success(data.message || "Reset link sent to your email");
 
         setTimeout(() => {
-          navigate("/login");
+          navigate("/send-verification-email");
         }, 2000);
       } else {
-        toast.error(
+        showToast.error(
           data.message ||
           data.errors?.email?.[0] ||
           "Something went wrong"
         );
       }
     } catch (error) {
-      console.error("Error:", error); 
-      toast.error("Server not reachable. Please try again later.");
+      console.error("Error:", error);
+      showToast.error("Server not reachable. Please try again later.");
     } finally {
       setIsLoading(false);
     }
@@ -48,19 +47,19 @@ const ForgotPassword = () => {
 
   return (
     <div className="bg-[var(--color-bg-app)] font-sans text-[var(--color-brand-navy)] min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
-      <ToastContainer position="top-center" autoClose={2000} theme="light" />
+
 
       {/* Decorative Background Blur */}
       <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-teal-300/20 rounded-full mix-blend-multiply filter blur-[100px] pointer-events-none"></div>
 
       <main className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-12 bg-white rounded-[2.5rem] overflow-hidden shadow-premium animate-fade-in-up relative z-10 border border-slate-50">
-        
+
         {/* LEFT SIDE - FORM */}
         <section className="lg:col-span-6 flex flex-col justify-center p-8 md:p-16 bg-white relative border-r border-slate-50">
           <div className="max-w-md w-full mx-auto animate-slide-in-left">
-            
+
             {/* Back Button */}
-            <button 
+            <button
               onClick={() => navigate("/login")}
               className="text-slate-400 hover:text-[var(--color-brand-primary)] text-sm font-semibold flex items-center gap-2 mb-10 transition-colors group w-fit"
             >
@@ -137,7 +136,7 @@ const ForgotPassword = () => {
         {/* RIGHT SIDE - VISUALS */}
         <section className="lg:col-span-6 hidden lg:flex flex-col justify-center items-center relative p-12 bg-gradient-to-br from-[var(--color-bg-light)] to-white overflow-hidden">
           <div className="z-10 w-full max-w-sm animate-slide-in-right">
-            
+
             <h2 className="text-4xl font-black leading-tight mb-8 text-slate-900 tracking-tighter text-center">
               Regain access to your <br />
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-600 to-cyan-500">
@@ -158,7 +157,7 @@ const ForgotPassword = () => {
                   <p className="text-xs text-slate-400">Verifying account credentials</p>
                 </div>
               </div>
-              
+
               {/* Animated sequence lines mimicking email sending */}
               <div className="space-y-3">
                 <div className="flex items-center gap-3">

@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import axios from "axios";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { showToast } from "../../utils/toastUtils";
 import { useNavigate } from "react-router-dom";
 import LoginNav from "../../Components/common/LoginNav";
 
@@ -30,8 +29,8 @@ const LoginPage = () => {
     e.preventDefault();
     const { email, password } = formData;
 
-    if (!email || !password) {
-      toast.error("All fields are required");
+      if (!email || !password) {
+      showToast.error("All fields are required");
       return;
     }
 
@@ -45,7 +44,7 @@ const LoginPage = () => {
       const data = response.data;
 
       if (response.status === 200) {
-        toast.success(data.message || "Login successful");
+        showToast.success(data.message || "Login successful");
 
         const userObj = data.data.user;
         const formattedUser = {
@@ -58,7 +57,7 @@ const LoginPage = () => {
         const accessToken = data.data?.access_token || data.data?.access || data.access || data.token;
 
         if (!accessToken) {
-          toast.error("Token not received from backend");
+          showToast.error("Token not received from backend");
           setIsLoading(false);
           return;
         }
@@ -71,7 +70,7 @@ const LoginPage = () => {
         }, 1000);
 
       } else {
-        toast.error(data.message || "Login failed");
+        showToast.error(data.message || "Login failed");
         setIsLoading(false);
       }
 
@@ -79,9 +78,9 @@ const LoginPage = () => {
       if (error.response && error.response.data) {
         const serverErrors = error.response.data.errors;
         const errorMsg = serverErrors?.non_field_errors?.[0] || "Invalid email or password";
-        toast.error(errorMsg);
+        showToast.error(errorMsg);
       } else {
-        toast.error("Server error");
+        showToast.error("Server error");
       }
       setIsLoading(false);
     }
@@ -106,7 +105,7 @@ const LoginPage = () => {
       
       
      
-      <ToastContainer position="top-center" autoClose={2000} theme="light" />
+
 
       
         <main className="w-full max-w-9xl grid grid-cols-1 lg:grid-cols-12 min-h-[630px] bg-white  animate-in fade-in zoom-in-95 duration-700">

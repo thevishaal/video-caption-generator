@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import axios from "axios";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { showToast, formatServerError } from "../../utils/toastUtils";
 import { useNavigate } from "react-router-dom";
 import LoginNav from "../../Components/common/LoginNav";
 
@@ -35,7 +34,7 @@ const Register = () => {
     const { first_name, last_name, email, password, confirmPassword } = formData;
 
     if (password !== confirmPassword) {
-      toast.error("Passwords do not match");
+      showToast.error("Passwords do not match");
       return;
     }
 
@@ -48,7 +47,7 @@ const Register = () => {
       );
 
       if (response.status === 201) {
-        toast.success("Account created successfully! 🎉");
+        showToast.success("Account created successfully! 🎉");
         setTimeout(() => {
           navigate("/send-verification-email");
         }, 2000);
@@ -58,14 +57,13 @@ const Register = () => {
       if (error.response && error.response.data) {
         const serverErrors = error.response.data.errors;
         if (serverErrors) {
-          const firstKey = Object.keys(serverErrors)[0];
-          const errorMsg = serverErrors[firstKey][0]; 
-          toast.error(`${firstKey.replace('_', ' ')}: ${errorMsg}`);
+          const polishedError = formatServerError(serverErrors);
+          showToast.error(polishedError);
         } else {
-          toast.error(error.response.data.message || "Registration failed");
+          showToast.error(error.response.data.message || "Registration failed");
         }
       } else {
-        toast.error("Error connecting to server");
+        showToast.error("Error connecting to server");
       }
     } finally {
       setIsLoading(false);
@@ -92,7 +90,7 @@ const Register = () => {
      
       
       
-      <ToastContainer position="top-center" autoClose={2000} theme="light" />
+
 
       
         <main className="w-full max-w-9xl grid grid-cols-1 lg:grid-cols-12 min-h-[630px] overflow-hidden animate-in fade-in zoom-in-95 duration-700">

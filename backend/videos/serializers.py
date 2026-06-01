@@ -1,3 +1,4 @@
+import os
 from rest_framework import serializers
 from .models import Video, ExportJob
 from .utils import validate_video_file
@@ -123,6 +124,7 @@ class ExportRequestSerializer(serializers.Serializer):
 class ExportJobSerializer(serializers.ModelSerializer):
     download_url = serializers.SerializerMethodField()
     caption_mode = serializers.CharField(read_only=True)
+    output_file_size = serializers.SerializerMethodField()
 
     class Meta:
         model = ExportJob
@@ -136,6 +138,7 @@ class ExportJobSerializer(serializers.ModelSerializer):
             "status",
             "error_message",
             "download_url",
+            "output_file_size",
             "created_at",
         ]
 
@@ -145,6 +148,17 @@ class ExportJobSerializer(serializers.ModelSerializer):
             return None
         url = f"/api/videos/{obj.video_id}/download/"
         return request.build_absolute_uri(url) if request else url
+
+    def get_output_file_size(self, obj):
+        if obj.output_file and obj.status == "completed":
+            try:
+                # Direct filesystem path check first for absolute reliability
+                if hasattr(obj.output_file, 'path') and os.path.exists(obj.output_file.path):
+                    return os.path.getsize(obj.output_file.path)
+                return obj.output_file.size
+            except Exception:
+                return None
+        return None
 
 
 

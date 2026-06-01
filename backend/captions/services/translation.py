@@ -30,9 +30,18 @@ def translate_captions(texts: list[str], target_language: str) -> list[str]:
 def _translate_chunk(texts: list[str], lang_name: str) -> list[str]:
     numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(texts))
     prompt = (
-        f"Translate the following numbered subtitle lines to {lang_name}.\n"
-        f"Return ONLY a JSON array of translated strings in the same order.\n"
-        f"No explanations, no markdown fences.\n\n{numbered}"
+        f"You are a professional subtitle translator. Translate these numbered subtitle lines into {lang_name}.\n"
+        f"You MUST return a JSON object containing a 'translations' key, which is a list of exactly {len(texts)} translated strings in the exact same order.\n"
+        f"Do not combine, skip, or merge any lines. Every single numbered input line (from 1 to {len(texts)}) MUST have a corresponding translated string in the list.\n"
+        f"Do not include the line numbers inside the translated strings.\n\n"
+        f"Expected output JSON format:\n"
+        f"{{\n"
+        f"  \"translations\": [\n"
+        f"    \"translated line 1\",\n"
+        f"    \"translated line 2\"\n"
+        f"  ]\n"
+        f"}}\n\n"
+        f"Numbered input lines to translate:\n{numbered}"
     )
     
     try:
@@ -44,8 +53,9 @@ def _translate_chunk(texts: list[str], lang_name: str) -> list[str]:
             },
             json={
                 "model": "llama-3.3-70b-versatile",
+                "response_format": {"type": "json_object"},
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.2,
+                "temperature": 0.1,  # Lower temperature for strict consistency
             },
             timeout=60,
         )
@@ -54,15 +64,10 @@ def _translate_chunk(texts: list[str], lang_name: str) -> list[str]:
         # Safely extract raw text
         raw = response.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
         
-        # Robustly strip markdown code fences if model includes them
-        if raw.startswith("```"):
-            raw = raw.strip("`").strip()
-            if raw.lower().startswith("json"):
-                raw = raw[4:].strip()
-        
         # Parse JSON
         try:
-            translated = json.loads(raw)
+            data = json.loads(raw)
+            translated = data.get("translations", [])
         except json.JSONDecodeError as e:
             logger.error(f"JSON parsing failed for translation chunk: {e}. Raw: {raw[:100]}...")
             return texts  # Cannot iterate through broken JSON; full chunk fallback required
@@ -71,7 +76,7 @@ def _translate_chunk(texts: list[str], lang_name: str) -> list[str]:
         if not isinstance(translated, list):
             logger.warning(f"Translation model returned {type(translated).__name__} instead of a list.")
             return texts
-
+ 
         # Enforce exact length and apply per-item fallback
         results = []
         for i, original_text in enumerate(texts):
@@ -84,7 +89,7 @@ def _translate_chunk(texts: list[str], lang_name: str) -> list[str]:
                 results.append(original_text)
                 
         return results
-
+ 
     except Exception as e:
         logger.error(f"Translation chunk failed with exception: {e}")
         return texts  # fallback: return originals unchanged

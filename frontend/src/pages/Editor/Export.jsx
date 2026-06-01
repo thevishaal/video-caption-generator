@@ -96,7 +96,7 @@ function formatDuration(secs) {
  * Dynamically calculates estimated export size based on original video metadata
  * applying realistic non-linear scaling for resolution changes and codec formats.
  */
-function calculateEstimatedExportSize(originalBytes, origW, origH, targetResString, targetFormat, isSrt) {
+function calculateEstimatedExportSize(originalBytes, origW, origH, targetResString, targetFormat, isSrt, originalCodec) {
   if (isSrt) return '~12 KB';
   if (!originalBytes || isNaN(Number(originalBytes))) return '—';
 
@@ -115,10 +115,14 @@ function calculateEstimatedExportSize(originalBytes, origW, origH, targetResStri
   // Using an exponent (0.75) mimics standard H.264/HEVC bitrate efficiency curves.
   const resolutionMultiplier = Math.pow(targetPixels / originalPixels, 0.75);
 
-  // Format multiplier: MOV typically uses less efficient or heavier codecs than standard MP4.
+  // Format multiplier: MOV typically uses less efficient or heavier Prores codecs.
   const formatMultiplier = targetFormat === 'mov' ? 1.6 : 1.0;
 
-  const qualityOverhead = 1.7; 
+  // Real compression overhead: if settings match the original video exactly,
+  // we add a tiny 2% overhead for subtitle burning. Otherwise, we add a 15% quality margin.
+  const codecMatch = originalCodec ? originalCodec.toLowerCase().includes('264') || originalCodec.toLowerCase().includes('h264') : true;
+  const qualityOverhead = (targetResString === `${originalW}x${originalH}` && targetFormat === 'mp4' && codecMatch) ? 1.02 : 1.15;
+
   const estimatedBytes = baseBytes * resolutionMultiplier * formatMultiplier * qualityOverhead;
 
   return formatFileSize(estimatedBytes);
@@ -127,6 +131,53 @@ function calculateEstimatedExportSize(originalBytes, origW, origH, targetResStri
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
+
+const LANGUAGES_MAP = {
+  en: 'English',
+  es: 'Spanish (Español)',
+  fr: 'French (Français)',
+  de: 'German (Deutsch)',
+  it: 'Italian (Italiano)',
+  pt: 'Portuguese (Português)',
+  hi: 'Hindi (हिन्दी)',
+  zh: 'Chinese (中文)',
+  ja: 'Japanese (日本語)',
+  ko: 'Korean (한국어)',
+};
+
+const getFriendlyLanguage = (code) => {
+  if (!code) return '—';
+  const c = code.toLowerCase();
+  return LANGUAGES_MAP[c] || code.toUpperCase();
+};
+
+const copyToClipboard = async (text) => {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (err) {
+      // Fallback to execCommand if clipboard write fails
+    }
+  }
+
+  try {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.top = '0';
+    textArea.style.left = '0';
+    textArea.style.opacity = '0';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    const successful = document.execCommand('copy');
+    document.body.removeChild(textArea);
+    return successful;
+  } catch (err) {
+    return false;
+  }
+};
 
 const Export = () => {
   const { videoId } = useParams();
@@ -151,40 +202,17 @@ const Export = () => {
   const [progress, setProgress] = useState(0);
   const [estimatedTime, setEstimatedTime] = useState('--:--');
   const [exportJobId, setExportJobId] = useState(null);
+  const [completedJobData, setCompletedJobData] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [copied, setCopied] = useState(false);
 
   const pollTimerRef = useRef(null);
   const progressTimerRef = useRef(null);
 
   const isSrt = selectedCaptionMode === 'Separate .SRT';
 
-  // ── 1. Initialization & Cleanup
-  useEffect(() => {
-    if (!videoId) {
-      setLoadError('No videoId provided.');
-      setIsLoading(false);
-      return;
-    }
-    fetchVideoPreview(videoId)
-      .then((data) => {
-        setVideoData(data);
-        setIsLoading(false);
-      })
-      .catch((err) => {
-        setLoadError(err.message);
-        setIsLoading(false);
-      });
-  }, [videoId]);
-
-  useEffect(() => {
-    return () => {
-      clearInterval(pollTimerRef.current);
-      clearInterval(progressTimerRef.current);
-    };
-  }, []);
-
-  // ── 2. Progress Animations
-  const startProgressAnimation = () => {
+  // ── 1. Progress Animations & Polling
+  const startProgressAnimation = useCallback(() => {
     progressTimerRef.current = setInterval(() => {
       setProgress((p) => (p < 88 ? p + Math.random() * 2.5 : p));
       const secs = Math.floor(Math.random() * 40 + 5);
@@ -192,7 +220,7 @@ const Export = () => {
       const s = secs % 60;
       setEstimatedTime(`0${m}:${s.toString().padStart(2, '0')}`);
     }, 800);
-  };
+  }, []);
 
   const startPolling = useCallback((jobId) => {
     pollTimerRef.current = setInterval(async () => {
@@ -201,6 +229,7 @@ const Export = () => {
         if (job.status === 'completed') {
           clearInterval(pollTimerRef.current);
           clearInterval(progressTimerRef.current);
+          setCompletedJobData(job);
           setProgress(100);
           setEstimatedTime('Ready');
           setExportPhase('complete');
@@ -215,6 +244,103 @@ const Export = () => {
       }
     }, 2000);
   }, [videoId]);
+
+  // ── State for SRT actual size
+  const [srtFileSize, setSrtFileSize] = useState(null);
+
+  // ── 2. Option-Specific Export Matching
+  const checkMatchingExport = useCallback(async (res, fmt, capMode, lang) => {
+    try {
+      const mode = capMode === 'Separate .SRT' ? 'srt' : 'burned';
+      const format = capMode === 'Separate .SRT' ? 'srt' : fmt;
+      
+      const latestJob = await apiFetch(
+        `/videos/${videoId}/export/?resolution=${res}&export_format=${format}&caption_mode=${mode}&language=${lang}`
+      );
+      
+      if (latestJob && latestJob.id) {
+        setExportJobId(latestJob.id);
+        setCompletedJobData(latestJob);
+
+        if (latestJob.status === 'processing' || latestJob.status === 'pending') {
+          setExportPhase('rendering');
+          setProgress(30);
+          startProgressAnimation();
+          startPolling(latestJob.id);
+        } else if (latestJob.status === 'completed') {
+          setExportPhase('complete');
+          setProgress(100);
+          setEstimatedTime('Ready');
+        } else if (latestJob.status === 'failed') {
+          setExportPhase('failed');
+          setErrorMessage(latestJob.error_message || 'Export failed.');
+        }
+      } else {
+        // No matching job — reset to idle
+        setExportPhase('idle');
+        setProgress(0);
+        setEstimatedTime('--:--');
+        setExportJobId(null);
+        setCompletedJobData(null);
+        setErrorMessage('');
+        clearInterval(pollTimerRef.current);
+        clearInterval(progressTimerRef.current);
+      }
+    } catch (err) {
+      // Ignore transient fetch errors
+    }
+  }, [videoId, startPolling, startProgressAnimation]);
+
+  // ── 3. Initialization & Cleanup
+  useEffect(() => {
+    if (!videoId) {
+      setLoadError('No videoId provided.');
+      setIsLoading(false);
+      return;
+    }
+    
+    // Load video data and run first option match
+    fetchVideoPreview(videoId)
+      .then((videoData) => {
+        setVideoData(videoData);
+        setIsLoading(false);
+        // Initial check for selections
+        checkMatchingExport(selectedRes, selectedFormat, selectedCaptionMode, selectedLanguage);
+      })
+      .catch((err) => {
+        setLoadError(err.message);
+        setIsLoading(false);
+      });
+  }, [videoId]); // Only run on mount!
+
+  // Check matching exports whenever selections change (unless wait-submitting/rendering)
+  useEffect(() => {
+    if (exportPhase !== 'rendering' && exportPhase !== 'submitting') {
+      checkMatchingExport(selectedRes, selectedFormat, selectedCaptionMode, selectedLanguage);
+    }
+  }, [selectedRes, selectedFormat, selectedCaptionMode, selectedLanguage, checkMatchingExport, exportPhase]);
+
+  // Fetch actual SRT file size dynamically
+  useEffect(() => {
+    if (isSrt) {
+      apiFetch(`/captions/videos/${videoId}/srt-size?language=${selectedLanguage}`)
+        .then((data) => {
+          if (data && data.size != null) {
+            setSrtFileSize(data.size);
+          }
+        })
+        .catch(() => {
+          setSrtFileSize(null);
+        });
+    }
+  }, [videoId, selectedLanguage, isSrt]);
+
+  useEffect(() => {
+    return () => {
+      clearInterval(pollTimerRef.current);
+      clearInterval(progressTimerRef.current);
+    };
+  }, []);
 
   // ── 3. Actions
   const handleExport = async () => {
@@ -284,7 +410,17 @@ const Export = () => {
     setProgress(0);
     setEstimatedTime('--:--');
     setExportJobId(null);
+    setCompletedJobData(null);
     setErrorMessage('');
+  };
+
+  const handleCopyLink = async () => {
+    const url = `${window.location.origin}/videos/${videoId}`;
+    const success = await copyToClipboard(url);
+    if (success) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   // ── 4. Derived UI State
@@ -306,14 +442,25 @@ const Export = () => {
   const displayCodec = codec || '—';
   const selectedResLabel = RESOLUTIONS.find((r) => r.id === selectedRes)?.label ?? selectedRes;
 
-  const displaySize = calculateEstimatedExportSize(
-    file_size,
-    width,
-    height,
-    selectedRes,
-    selectedFormat,
-    isSrt
-  );
+  const displaySize = isSrt
+    ? (srtFileSize != null ? formatFileSize(srtFileSize) : '~12 KB')
+    : (exportPhase === 'complete' && completedJobData?.output_file_size
+        ? formatFileSize(completedJobData.output_file_size)
+        : calculateEstimatedExportSize(
+            file_size,
+            width,
+            height,
+            selectedRes,
+            selectedFormat,
+            isSrt,
+            codec
+          ));
+
+  // Derived Export Target parameters
+  const targetFormatLabel = isSrt ? 'SRT Subtitles' : (selectedFormat === 'mov' ? 'MOV Video' : 'MP4 Video');
+  const targetResolutionLabel = isSrt ? '—' : `${selectedResLabel} (${selectedRes})`;
+  const targetCodecLabel = isSrt ? 'SubRip Text' : (selectedFormat === 'mov' ? 'ProRes 422' : 'H.264 (AVC)');
+  const displayLanguage = getFriendlyLanguage(selectedLanguage);
 
   // ── 5. Render Loading & Errors
   if (isLoading) {
@@ -521,8 +668,17 @@ const Export = () => {
                 onClick={handleExport}
                 className="w-full text-white font-bold py-3.5 md:py-4 rounded-xl md:rounded-2xl transition-all duration-300 shadow-md flex items-center justify-center gap-2 md:gap-2.5 text-sm md:text-base bg-[#0C4E5E] hover:bg-[#093c48]"
               >
-                <i className="fa-solid fa-play" />
-                {isSrt ? 'Download .SRT File' : 'Start Video Export'}
+                {isSrt ? (
+                  <>
+                    <i className="fa-solid fa-download" />
+                    {`Download SRT · ${displayLanguage} (${displaySize})`}
+                  </>
+                ) : (
+                  <>
+                    <i className="fa-solid fa-play" />
+                    {'Start Video Export'}
+                  </>
+                )}
               </button>
             )}
 
@@ -543,7 +699,7 @@ const Export = () => {
                   className="flex-1 text-white font-bold py-3.5 md:py-4 rounded-xl md:rounded-2xl transition-all duration-300 shadow-md flex items-center justify-center gap-2 md:gap-2.5 text-sm md:text-base bg-[#10B981] hover:bg-[#059669]"
                 >
                   <i className="fa-solid fa-download" />
-                  {isSrt ? 'Download .SRT File' : `Download ${selectedFormat.toUpperCase()} · ${selectedResLabel}`}
+                  {isSrt ? `Download SRT · ${displayLanguage} (${displaySize})` : `Download ${selectedFormat.toUpperCase()} · ${selectedResLabel} (${displaySize})`}
                 </button>
                 <button
                   onClick={handleReset}
@@ -616,7 +772,7 @@ const Export = () => {
             <div className="flex flex-col gap-3">
               <div className="flex items-center justify-between py-1 border-b border-slate-50">
                 <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">
-                  Estimated Size
+                  {exportPhase === 'complete' ? 'Actual Size' : 'Estimated Size'}
                 </span>
                 <span className="text-[#111827] font-bold text-xs md:text-sm">
                   {displaySize}
@@ -625,10 +781,37 @@ const Export = () => {
 
               <div className="flex items-center justify-between py-1 border-b border-slate-50">
                 <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">
-                  Codec
+                  Target Format
                 </span>
                 <span className="text-[#111827] font-bold text-xs md:text-sm">
-                  {displayCodec}
+                  {targetFormatLabel}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between py-1 border-b border-slate-50">
+                <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">
+                  Resolution
+                </span>
+                <span className="text-[#111827] font-bold text-xs md:text-sm">
+                  {targetResolutionLabel}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between py-1 border-b border-slate-50">
+                <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">
+                  Target Codec
+                </span>
+                <span className="text-[#111827] font-bold text-xs md:text-sm">
+                  {targetCodecLabel}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between py-1 border-b border-slate-50">
+                <span className="text-slate-500 font-semibold text-[10px] md:text-xs tracking-wider uppercase">
+                  Caption Language
+                </span>
+                <span className="text-[#111827] font-bold text-xs md:text-sm">
+                  {displayLanguage}
                 </span>
               </div>
 
@@ -655,10 +838,20 @@ const Export = () => {
                   Project Link
                 </span>
                 <button
-                  onClick={() => navigator.clipboard.writeText(`${window.location.origin}/videos/${videoId}`)}
-                  className="text-[#128189] font-bold text-xs md:text-sm flex items-center gap-1.5 hover:text-[#0E666D] transition-colors"
+                  onClick={handleCopyLink}
+                  className={`${
+                    copied ? 'text-green-600 font-extrabold scale-[1.03]' : 'text-[#128189] hover:text-[#0E666D]'
+                  } font-bold text-xs md:text-sm flex items-center gap-1.5 transition-all duration-300`}
                 >
-                  Copy URL <i className="fa-solid fa-copy" />
+                  {copied ? (
+                    <>
+                      Copied! <i className="fa-solid fa-circle-check animate-fade-in text-green-600" />
+                    </>
+                  ) : (
+                    <>
+                      Copy URL <i className="fa-solid fa-copy" />
+                    </>
+                  )}
                 </button>
               </div>
             </div>

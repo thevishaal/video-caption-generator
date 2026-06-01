@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
+import { showToast } from "../../utils/toastUtils";
 
 const FONTS = [
   "Inter",
@@ -31,39 +32,14 @@ const parseTimeInput = (str) => {
   return parseFloat(str) || 0;
 };
 
-// ─── Toast ────────────────────────────────────────────────────────────────────
-const Toast = ({ message, type, onClose }) => {
-  useEffect(() => {
-    const t = setTimeout(onClose, 4000);
-    return () => clearTimeout(t);
-  }, [onClose]);
 
-  const bg =
-    type === "success"
-      ? "bg-emerald-500"
-      : type === "error"
-      ? "bg-red-500"
-      : "bg-[#128189]";
-
-  return (
-    <div
-      className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[999] flex items-center gap-3 px-5 py-3 rounded-2xl text-white shadow-2xl text-sm font-semibold transition-all ${bg}`}
-      style={{ animation: "slideUp .25s ease" }}
-    >
-      {type === "success" && <i className="fa-solid fa-circle-check" />}
-      {type === "error" && <i className="fa-solid fa-circle-exclamation" />}
-      {type === "loading" && <i className="fa-solid fa-circle-notch fa-spin" />}
-      <span>{message}</span>
-    </div>
-  );
-};
 
 // ─── Captions Component ───────────────────────────────────────────────────────
 const Captions = () => {
   const { videoId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const videoUrl = location.state?.videoUrl || "";
+  const [videoUrl, setVideoUrl] = useState(location.state?.videoUrl || "");
 
   // ── State ──
   const [segments, setSegments] = useState([]);
@@ -97,7 +73,7 @@ const Captions = () => {
   const fontDropdownRef = useRef(null);
 
   const [isSaving, setIsSaving] = useState(false);
-  const [toast, setToast] = useState(null);
+  const loadingToastId = useRef(null);
 
   // Refs
   const timelineRef = useRef(null);
@@ -106,40 +82,96 @@ const Captions = () => {
   const activeSegmentRef = useRef(null); // for auto-scroll
   const segmentRefs = useRef({});
 
-  // ── Caption Generation ──────────────────────────────────────────────────────
+  // ── Caption Generation & State Recovery ──────────────────────────────────────
   useEffect(() => {
     if (!videoId) return;
-    const generateCaptions = async () => {
+
+    const loadVideoAndCaptions = async () => {
       setIsLoading(true);
       const token = localStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
+
       try {
-        setLoadingMessage("Extracting audio...");
-        const response = await axios.post(
-          "http://127.0.0.1:8000/api/captions/generate/",
-          { video_id: videoId, language: "en" },
-          { headers }
-        );
-        setLoadingMessage("Generating AI captions...");
-        const captions = response.data?.data || [];
-        const mappedSegments = captions
-          .map((item) => ({
-            id: item.id,
-            start_time: item.start_time,
-            end_time: item.end_time,
-            text: item.original_text || item.translated_text || "",
-          }))
-          .sort((a, b) => a.start_time - b.start_time);
-        setSegments(mappedSegments);
-        setLoadingMessage("Captions ready");
-        setIsLoading(false);
+        setLoadingMessage("Fetching video details...");
+        const res = await axios.get(`http://127.0.0.1:8000/api/videos/${videoId}/preview/`, { headers });
+        const videoData = res.data?.data || {};
+
+        if (videoData.preview_url) {
+          setVideoUrl(videoData.preview_url);
+        }
+
+        const existingCaptions = videoData.captions || [];
+
+        if (existingCaptions.length > 0) {
+          setLoadingMessage("Loading existing captions...");
+          
+          // Filter to video language or original language if none matches
+          const activeLanguage = videoData.language || "en";
+          let displayCaptions = existingCaptions.filter(c => c.language === activeLanguage);
+          if (displayCaptions.length === 0) {
+            displayCaptions = existingCaptions;
+          }
+
+          const sortedCaptions = displayCaptions
+            .map((item) => ({
+              id: item.id,
+              start_time: item.start_time,
+              end_time: item.end_time,
+              text: item.original_text || item.translated_text || "",
+            }))
+            .sort((a, b) => a.start_time - b.start_time);
+          
+          setSegments(sortedCaptions);
+
+          // Parse and apply styles from the first caption so styling controls match
+          const firstCap = displayCaptions[0];
+          if (firstCap) {
+            setStyles({
+              typography: firstCap.font_family || "Inter",
+              isBold: firstCap.bold ?? true,
+              isItalic: firstCap.italic ?? false,
+              isCaps: firstCap.is_caps ?? false,
+              textColor: firstCap.font_color || "#FFFFFF",
+              bgColor: firstCap.background_color || "#000000",
+              bgOpacity: firstCap.bg_opacity ?? 40,
+              position: firstCap.position || "bottom-center",
+              fontSize: firstCap.font_size || 16,
+            });
+          }
+
+          setLoadingMessage("Captions loaded successfully.");
+          setIsLoading(false);
+        } else {
+          // If no captions exist in database, generate them fresh using Groq
+          setLoadingMessage("Extracting audio...");
+          const genRes = await axios.post(
+            "http://127.0.0.1:8000/api/captions/generate/",
+            { video_id: videoId, language: videoData.language || "en" },
+            { headers }
+          );
+          setLoadingMessage("Generating AI captions...");
+          const newCaptions = genRes.data?.data || [];
+          const sortedNew = newCaptions
+            .map((item) => ({
+              id: item.id,
+              start_time: item.start_time,
+              end_time: item.end_time,
+              text: item.original_text || item.translated_text || "",
+            }))
+            .sort((a, b) => a.start_time - b.start_time);
+
+          setSegments(sortedNew);
+          setLoadingMessage("Captions ready");
+          setIsLoading(false);
+        }
       } catch (error) {
-        console.error("Caption generation failed:", error);
-        setLoadingMessage("Failed to generate captions");
+        console.error("Failed to load video or captions:", error);
+        setLoadingMessage("Failed to load project details.");
         setIsLoading(false);
       }
     };
-    generateCaptions();
+
+    loadVideoAndCaptions();
   }, [videoId]);
 
   // ── Click outside font menu ─────────────────────────────────────────────────
@@ -183,6 +215,24 @@ const Captions = () => {
     setIsVideoReady(true);
   };
 
+  const [videoElementHeight, setVideoElementHeight] = useState(360);
+
+  useEffect(() => {
+    if (!videoRef.current) return;
+    const updateHeight = () => {
+      if (videoRef.current) {
+        setVideoElementHeight(videoRef.current.clientHeight || 360);
+      }
+    };
+    updateHeight();
+    window.addEventListener("resize", updateHeight);
+    const timer = setInterval(updateHeight, 500);
+    return () => {
+      window.removeEventListener("resize", updateHeight);
+      clearInterval(timer);
+    };
+  }, [videoRef, isVideoReady]);
+
   const togglePlay = () => {
     if (!videoRef.current) return;
     if (videoRef.current.paused) videoRef.current.play();
@@ -205,7 +255,7 @@ const Captions = () => {
     const video = videoRef.current;
     video.currentTime = segment.start_time;
 
-    video.play().catch(() => {}); // safer autoplay handling
+    video.play().catch(() => { }); // safer autoplay handling
 
     setCurrentTime(segment.start_time);
     setActiveSegmentId(segment.id);
@@ -321,12 +371,12 @@ const Captions = () => {
   const getPositionStyle = () => {
     // We use Flexbox alignment on a full-size overlay wrapper.
     const map = {
-      "top-left":      { alignItems: "flex-start", justifyContent: "flex-start", textAlign: "left" },
-      "top-center":    { alignItems: "flex-start", justifyContent: "center",     textAlign: "center" },
-      "top-right":     { alignItems: "flex-start", justifyContent: "flex-end",   textAlign: "right" },
-      "bottom-left":   { alignItems: "flex-end",   justifyContent: "flex-start", textAlign: "left" },
-      "bottom-center": { alignItems: "flex-end",   justifyContent: "center",     textAlign: "center" },
-      "bottom-right":  { alignItems: "flex-end",   justifyContent: "flex-end",   textAlign: "right" },
+      "top-left": { alignItems: "flex-start", justifyContent: "flex-start", textAlign: "left" },
+      "top-center": { alignItems: "flex-start", justifyContent: "center", textAlign: "center" },
+      "top-right": { alignItems: "flex-start", justifyContent: "flex-end", textAlign: "right" },
+      "bottom-left": { alignItems: "flex-end", justifyContent: "flex-start", textAlign: "left" },
+      "bottom-center": { alignItems: "flex-end", justifyContent: "center", textAlign: "center" },
+      "bottom-right": { alignItems: "flex-end", justifyContent: "flex-end", textAlign: "right" },
     };
     return map[styles.position] || map["bottom-center"];
   };
@@ -345,7 +395,8 @@ const Captions = () => {
   // ── Apply Changes ─────────────────────────────────────────────────────────
   const handleApplyChanges = async () => {
     setIsSaving(true);
-    setToast({ message: "Saving captions...", type: "loading" });
+    showToast.dismiss(loadingToastId.current);
+    loadingToastId.current = showToast.loading("Saving captions...");
     const token = localStorage.getItem("token");
     const headers = { Authorization: `Bearer ${token}` };
 
@@ -364,7 +415,8 @@ const Captions = () => {
         )
       );
 
-      setToast({ message: "Saving styles...", type: "loading" });
+      showToast.dismiss(loadingToastId.current);
+      loadingToastId.current = showToast.loading("Saving styles...");
       await axios.put(
         "http://127.0.0.1:8000/api/captions/style",
         {
@@ -373,21 +425,22 @@ const Captions = () => {
           font_size: styles.fontSize,
           font_color: styles.textColor,
           background_color: styles.bgColor,
-          background_opacity: styles.bgOpacity, // Added to Payload
+          bg_opacity: styles.bgOpacity,
           bold: styles.isBold,
           italic: styles.isItalic,
-          is_caps: styles.isCaps, // Added to Payload
+          is_caps: styles.isCaps,
           alignment: styles.position.includes("center")
             ? "center"
             : styles.position.includes("right")
-            ? "right"
-            : "left",
+              ? "right"
+              : "left",
           position: styles.position,
         },
         { headers }
       );
 
-      setToast({ message: "Changes applied successfully!", type: "success" });
+      showToast.dismiss(loadingToastId.current);
+      showToast.success("Changes applied successfully!");
 
       setTimeout(() => {
         navigate(`/editor/upload/captions/translate/${videoId}`, {
@@ -396,7 +449,8 @@ const Captions = () => {
       }, 1200);
     } catch (err) {
       console.error("Apply changes failed:", err);
-      setToast({ message: "Failed to save changes. Please try again.", type: "error" });
+      showToast.dismiss(loadingToastId.current);
+      showToast.error("Failed to save changes. Please try again.");
       setIsSaving(false);
     }
   };
@@ -457,9 +511,7 @@ const Captions = () => {
         }
       `}</style>
 
-      {toast && (
-        <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
-      )}
+
 
       {/* ── Root layout ── */}
       <div className="flex flex-col xl:flex-row min-h-screen xl:h-screen bg-[#F4F6F8] font-sans overflow-y-auto xl:overflow-hidden w-full">
@@ -499,11 +551,10 @@ const Captions = () => {
                     <div
                       key={segment.id}
                       ref={(el) => { segmentRefs.current[segment.id] = el; }}
-                      className={`segment-card rounded-lg cursor-pointer px-3 py-2.5 border-l-[3px] ${
-                        isActive
+                      className={`segment-card rounded-lg cursor-pointer px-3 py-2.5 border-l-[3px] ${isActive
                           ? "active border-[#128189]"
                           : "border-transparent"
-                      }`}
+                        }`}
                       onClick={() => handleCaptionClick(segment)}
                     >
                       {/* Timestamps + index badge */}
@@ -523,9 +574,8 @@ const Captions = () => {
                             onClick={(e) => e.stopPropagation()}
                           />
                         </div>
-                        <span className={`text-[8px] font-bold tracking-wider px-1.5 py-0.5 rounded-full ${
-                          isActive ? "bg-[#E1F2F3] text-[#128189]" : "bg-slate-100 text-slate-400"
-                        }`}>
+                        <span className={`text-[8px] font-bold tracking-wider px-1.5 py-0.5 rounded-full ${isActive ? "bg-[#E1F2F3] text-[#128189]" : "bg-slate-100 text-slate-400"
+                          }`}>
                           {isActive ? "●" : `${segments.indexOf(segment) + 1}`}
                         </span>
                       </div>
@@ -534,9 +584,8 @@ const Captions = () => {
                       <textarea
                         value={segment.text}
                         onChange={(e) => updateSegmentText(segment.id, e.target.value)}
-                        className={`w-full text-xs leading-snug bg-transparent resize-none focus:outline-none focus:ring-0 overflow-hidden ${
-                          isActive ? "text-slate-900 font-medium" : "text-slate-500"
-                        }`}
+                        className={`w-full text-xs leading-snug bg-transparent resize-none focus:outline-none focus:ring-0 overflow-hidden ${isActive ? "text-slate-900 font-medium" : "text-slate-500"
+                          }`}
                         rows={2}
                         placeholder="Caption text..."
                         onClick={(e) => e.stopPropagation()}
@@ -557,11 +606,10 @@ const Captions = () => {
             <button
               onClick={handleApplyChanges}
               disabled={isSaving || isLoading}
-              className={`w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl font-bold text-xs tracking-wide transition-all shadow-sm ${
-                isSaving || isLoading
+              className={`w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl font-bold text-xs tracking-wide transition-all shadow-sm ${isSaving || isLoading
                   ? "bg-slate-200 text-slate-400 cursor-not-allowed"
                   : "bg-gradient-to-r from-[#0C4E5E] to-[#128189] text-white hover:shadow-md hover:scale-[1.02] active:scale-[0.98]"
-              }`}
+                }`}
             >
               {isSaving ? (
                 <><i className="fa-solid fa-circle-notch fa-spin" /> Saving...</>
@@ -610,39 +658,56 @@ const Captions = () => {
               />
 
               {/* Subtitle overlay */}
-              {activeSegment && (
-                <div
-                  key={activeSegment.id}
-                  className="absolute inset-0 flex p-4 pointer-events-none subtitle-animate"
-                  style={{
-                    alignItems: posStyle.alignItems,
-                    justifyContent: posStyle.justifyContent,
-                  }}
-                >
+              {(() => {
+                const aspect_ratio = isPortrait ? 9/16 : 16/9;
+                const target_h_player = videoElementHeight || 360;
+                const target_w_player = target_h_player * aspect_ratio;
+                const preview_margin_x = Math.max(24 * (target_h_player / 360), target_w_player * 0.08);
+                const preview_margin_y = Math.max(24 * (target_h_player / 360), target_h_player * 0.08);
+
+                const align_x = styles.position.includes("left") ? "flex-start" : styles.position.includes("right") ? "flex-end" : "center";
+                const align_y = styles.position.includes("top") ? "flex-start" : styles.position.includes("bottom") ? "flex-end" : "center";
+
+                return activeSegment && (
                   <div
-                    className="rounded-lg px-3 py-1.5 shadow-lg pointer-events-auto"
+                    key={activeSegment.id}
+                    className="absolute inset-0 flex flex-col pointer-events-none subtitle-animate"
                     style={{
-                      maxWidth: "85%",
-                      backgroundColor: parseColor(styles.bgColor, styles.bgOpacity),
+                      alignItems: align_x,
+                      justifyContent: align_y,
+                      paddingLeft: `${preview_margin_x}px`,
+                      paddingRight: `${preview_margin_x}px`,
+                      paddingTop: `${preview_margin_y}px`,
+                      paddingBottom: `${preview_margin_y}px`,
                     }}
                   >
-                    <p
-                      className="leading-snug break-words"
+                    <div
+                      className="pointer-events-auto"
                       style={{
-                        color: styles.textColor,
-                        fontFamily: styles.typography,
-                        fontWeight: styles.isBold ? "700" : "400",
-                        fontStyle: styles.isItalic ? "italic" : "normal",
-                        textTransform: styles.isCaps ? "uppercase" : "none",
-                        fontSize: `clamp(10px, ${styles.fontSize / 16}vw + 6px, ${styles.fontSize}px)`,
-                        textAlign: posStyle.textAlign,
+                        maxWidth: "85%",
+                        backgroundColor: styles.bgOpacity > 0 ? parseColor(styles.bgColor, styles.bgOpacity) : "transparent",
+                        padding: `${styles.bgOpacity > 0 ? styles.fontSize * (videoElementHeight / 360) * 0.3 : 0}px`, // Symmetrical padding
+                        borderRadius: "0px", // ASS solid background box has sharp corners
+                        boxShadow: styles.bgOpacity > 0 ? "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)" : "none",
                       }}
                     >
-                      {activeSegment.text}
-                    </p>
+                      <p
+                        className="leading-snug break-words"
+                        style={{
+                          color: styles.textColor,
+                          fontFamily: styles.typography,
+                          fontWeight: styles.isBold ? "700" : "400",
+                          fontStyle: styles.isItalic ? "italic" : "normal",
+                          fontSize: `${styles.fontSize * (videoElementHeight / 360)}px`,
+                          textAlign: posStyle.textAlign,
+                        }}
+                      >
+                        {activeSegment.text && styles.isCaps ? activeSegment.text.toUpperCase() : activeSegment.text}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           </div>
 
@@ -768,11 +833,10 @@ const Captions = () => {
                   return (
                     <div
                       key={seg.id}
-                      className={`seg-block absolute top-2 bottom-2 rounded flex items-center px-1.5 text-[9px] font-semibold truncate border transition-all ${
-                        isActive
+                      className={`seg-block absolute top-2 bottom-2 rounded flex items-center px-1.5 text-[9px] font-semibold truncate border transition-all ${isActive
                           ? "bg-[#128189] text-white border-[#0C4E5E] shadow"
                           : "bg-[#E1F2F3] text-[#0C4E5E] border-[#b2dde1] hover:bg-[#c5eaed]"
-                      }`}
+                        }`}
                       style={{ left, width }}
                       onMouseDown={(e) => handleSegmentMouseDown(e, seg)}
                       onClick={(e) => {
@@ -830,9 +894,8 @@ const Captions = () => {
                   {FONTS.map((font) => (
                     <div
                       key={font}
-                      className={`px-3 py-2 cursor-pointer hover:bg-slate-50 text-xs ${
-                        styles.typography === font ? "text-[#128189] font-bold bg-[#F0F9FA]" : "text-slate-700"
-                      }`}
+                      className={`px-3 py-2 cursor-pointer hover:bg-slate-50 text-xs ${styles.typography === font ? "text-[#128189] font-bold bg-[#F0F9FA]" : "text-slate-700"
+                        }`}
                       style={{ fontFamily: font }}
                       onClick={() => { setStyles((p) => ({ ...p, typography: font })); setIsFontMenuOpen(false); }}
                     >
@@ -864,11 +927,10 @@ const Captions = () => {
                   <button
                     key={key}
                     onClick={() => toggleStyle(key)}
-                    className={`py-1.5 rounded-lg text-xs font-bold transition-all ${cls} ${
-                      styles[key]
+                    className={`py-1.5 rounded-lg text-xs font-bold transition-all ${cls} ${styles[key]
                         ? "bg-[#0C4E5E] text-white shadow"
                         : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-                    }`}
+                      }`}
                   >
                     {label}
                   </button>
@@ -928,11 +990,10 @@ const Captions = () => {
                   <button
                     key={pos.id}
                     onClick={() => setStyles((p) => ({ ...p, position: pos.id }))}
-                    className={`h-9 rounded-lg flex items-center justify-center transition-all ${
-                      styles.position === pos.id
+                    className={`h-9 rounded-lg flex items-center justify-center transition-all ${styles.position === pos.id
                         ? "bg-[#E1F2F3] border-2 border-[#128189] text-[#128189] scale-95"
                         : "bg-slate-50 border border-slate-100 text-slate-400 hover:border-slate-300"
-                    }`}
+                      }`}
                     title={`Align ${pos.id.replace("-", " ")}`}
                   >
                     <i className={`fa-solid ${pos.icon} text-[10px]`} />

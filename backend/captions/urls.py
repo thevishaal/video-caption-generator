@@ -11,7 +11,7 @@ urlpatterns = [
     path("", views.CaptionListView.as_view(), name="captions-list"),
     path("<uuid:pk>/", views.CaptionDetailView.as_view(), name="captions-detail"),
 
-    # Export + SRT download (scoped under /api/captions/videos/<id>/...)
-    path("videos/<uuid:video_id>/export", views.VideoCaptionExportView.as_view(), name="captions-export"),
+    # SRT download & size checking (scoped under /api/captions/videos/<id>/...)
     path("videos/<uuid:video_id>/download-srt", views.SRTDownloadView.as_view(), name="captions-download-srt"),
+    path("videos/<uuid:video_id>/srt-size", views.SRTSizeView.as_view(), name="captions-srt-size"),
 ]

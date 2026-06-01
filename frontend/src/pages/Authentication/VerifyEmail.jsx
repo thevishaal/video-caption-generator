@@ -1,8 +1,7 @@
 import React, { useEffect, useState , useRef} from "react";
 import axios from "axios";
 import { useParams, useNavigate } from "react-router-dom";
-import { ToastContainer, toast } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { showToast } from "../../utils/toastUtils";
 
 const VerifyEmail = () => {
 
@@ -33,7 +32,7 @@ useEffect(() => {
       const msg = res.data.message || "Verified successfully";
 
       setMessage(msg);
-      toast.success(msg);   
+      showToast.success(msg);   
 
       setTimeout(() => {
         navigate("/login");
@@ -44,7 +43,7 @@ useEffect(() => {
         err.response?.data?.message || "Verification failed";
 
       setMessage(msg);
-      toast.error(msg);     
+      showToast.error(msg);     
     } finally {
       setLoading(false);
     }
@@ -52,7 +51,7 @@ useEffect(() => {
 
   const handleResend = async () => {
     if (!email) {
-      toast.warning("Enter email first"); 
+      showToast.warning("Enter email first"); 
       return;
     }
 
@@ -62,18 +61,17 @@ useEffect(() => {
         { email }
       );
 
-      toast.success(res.data.message || "Email resent successfully 📩");
+      showToast.success(res.data.message || "Email resent successfully 📩");
 
     } catch (err) {
-      toast.error(err.response?.data?.message || "Error sending email");
+      showToast.error(err.response?.data?.message || "Error sending email");
     }
   };
 
   return (
     <div className="bg-[#f4faf9] font-sans min-h-screen flex flex-col items-center justify-center p-6">
 
-      {/* Toast Container (required) */}
-      <ToastContainer position="top-center" autoClose={2000} />
+
 
       <main className="w-full max-w-lg bg-white rounded-[40px] shadow-[0_20px_50px_rgba(0,0,0,0.05)] p-10 md:p-16 text-center relative overflow-hidden">
 

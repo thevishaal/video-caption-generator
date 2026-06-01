@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { showToast } from "../../utils/toastUtils";
 import UserProfile from "./UserProfile"; 
 
 const MyProfile = () => {
@@ -23,7 +22,7 @@ const MyProfile = () => {
       const token = localStorage.getItem("token");
 
       if (!token) {
-        toast.warn("Please login to access your profile.");
+        showToast.warning("Please login to access your profile.");
         navigate("/login", { replace: true });
         return;
       }
@@ -59,7 +58,7 @@ const MyProfile = () => {
       } catch (error) {
         console.error("Profile Fetch Error:", error.response || error);
         if (error.response?.status === 401 || error.response?.status === 403) {
-          toast.error("Session expired. Please login again.");
+          showToast.error("Session expired. Please login again.");
           localStorage.removeItem("token");
           localStorage.removeItem("refresh_token");
           localStorage.removeItem("user");
@@ -74,7 +73,7 @@ const MyProfile = () => {
               last_name: parsedUser.last_name || "",
             });
           } else {
-            toast.error("Unable to load profile.");
+            showToast.error("Unable to load profile.");
           }
         }
       } finally {
@@ -107,7 +106,7 @@ const MyProfile = () => {
         }
       );
 
-      toast.success("Profile updated successfully! ✨");
+      showToast.success("Profile updated successfully! ✨");
       
       // Update local user state with new names
       const updatedUser = { 
@@ -122,7 +121,7 @@ const MyProfile = () => {
 
     } catch (error) {
       const errorMsg = error.response?.data?.message || "Failed to update profile";
-      toast.error(errorMsg);
+      showToast.error(errorMsg);
     } finally {
       setSaving(false);
     }
@@ -143,7 +142,6 @@ const MyProfile = () => {
 
   return (
     <div className="min-h-screen bg-[var(--color-bg-app)] text-[var(--color-brand-navy)] font-sans relative overflow-hidden">
-      <ToastContainer position="top-center" autoClose={2000} theme="light" />
       
      
 

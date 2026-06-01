@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { toast, ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
+import { showToast } from "../../utils/toastUtils";
 
 const SendEmail = () => {
   const navigate = useNavigate();
@@ -13,9 +12,9 @@ const SendEmail = () => {
     try {
       // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 1500));
-      toast.success("Verification email resent successfully! 📧");
+      showToast.success("Verification email resent successfully! 📧");
     } catch (error) {
-      toast.error("Failed to resend email. Please try again.");
+      showToast.error("Failed to resend email. Please try again.");
     } finally {
       setIsResending(false);
     }
@@ -23,7 +22,7 @@ const SendEmail = () => {
 
   return (
     <div className="bg-[#f7f9fb] font-sans text-slate-800 min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden">
-      <ToastContainer position="top-center" autoClose={3000} theme="light" />
+
 
       {/* Visual Polish: Floating Background Elements */}
       <div className="fixed top-1/4 -left-20 w-64 h-64 bg-teal-200/20 rounded-full mix-blend-multiply blur-[100px] pointer-events-none -z-10 animate-[pulse_6s_ease-in-out_infinite]"></div>

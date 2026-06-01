@@ -28,8 +28,7 @@ def upload_audio_path(instance, filename):
 
 
 def export_video_path(instance, filename):
-    ext = os.path.splitext(filename)[1].lower() or ".mp4"
-    return f"videos/exports/{instance.video.owner_id}/{uuid.uuid4()}{ext}"
+    return f"videos/exports/{instance.video.owner_id}/{uuid.uuid4()}/{filename}"
 
 
 class TimeStampedModel(models.Model):

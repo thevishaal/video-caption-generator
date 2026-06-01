@@ -1,8 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import { ToastContainer, toast } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { showToast } from "../../utils/toastUtils";
 
 const ChangePassword = () => {
   const navigate = useNavigate();
@@ -30,7 +29,7 @@ const ChangePassword = () => {
     e.preventDefault();
 
     if (formData.new_password !== formData.confirmPassword) {
-      return toast.error("New passwords do not match!");
+      return showToast.error("New passwords do not match!");
     }
 
     setLoading(true);
@@ -51,7 +50,7 @@ const ChangePassword = () => {
       );
 
       if (response.status === 200 || response.data.success) {
-        toast.success("Password updated successfully! 🚀");
+        showToast.success("Password updated successfully! 🚀");
         
         setTimeout(() => {
           navigate("/dashboard");
@@ -59,7 +58,7 @@ const ChangePassword = () => {
       }
     } catch (error) {
       const errorMsg = error.response?.data?.message || "Error updating password";
-      toast.error(errorMsg);
+      showToast.error(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -81,7 +80,7 @@ const ChangePassword = () => {
 
   return (
     <div className="bg-[var(--color-bg-app)] font-sans text-[var(--color-brand-navy)] min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
-      <ToastContainer position="top-center" autoClose={2000} theme="light" />
+      
 
       {/* Decorative Background Blur */}
       <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-teal-300/20 rounded-full mix-blend-multiply filter blur-[100px] pointer-events-none"></div>

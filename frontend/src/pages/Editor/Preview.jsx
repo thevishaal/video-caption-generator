@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import axios from 'axios';
+import { showToast as showToastGlobal } from "../../utils/toastUtils";
 
 // ─── Utils ───────────────────────────────────────────────────────────────────
 
 function formatTime(sec) {
   if (sec == null || isNaN(sec)) return '00:00';
-  const d  = new Date(sec * 1000);
+  const d = new Date(sec * 1000);
   const hh = d.getUTCHours();
   const mm = d.getUTCMinutes().toString().padStart(2, '0');
   const ss = d.getUTCSeconds().toString().padStart(2, '0');
@@ -14,20 +15,39 @@ function formatTime(sec) {
 }
 
 function hexToRgb(hex = '#000000') {
+  if (!hex) return '0, 0, 0';
+  if (hex.startsWith('rgba') || hex.startsWith('rgb')) {
+    try {
+      const match = hex.match(/\d+,\s*\d+,\s*\d+/);
+      if (match) return match[0];
+    } catch {
+      return '0, 0, 0';
+    }
+  }
   const h = hex.replace('#', '');
-  return [
-    parseInt(h.slice(0, 2), 16),
-    parseInt(h.slice(2, 4), 16),
-    parseInt(h.slice(4, 6), 16),
-  ].join(', ');
+  if (h.length === 3) {
+    const r = parseInt(h[0] + h[0], 16);
+    const g = parseInt(h[1] + h[1], 16);
+    const b = parseInt(h[2] + h[2], 16);
+    if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
+      return `${r}, ${g}, ${b}`;
+    }
+  }
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  if (isNaN(r) || isNaN(g) || isNaN(b)) {
+    return '0, 0, 0';
+  }
+  return `${r}, ${g}, ${b}`;
 }
 
 function getFileNameFromUrl(url) {
   if (!url) return 'Untitled Video';
   try {
     const decoded = decodeURIComponent(url);
-    const parts   = decoded.split('/');
-    const raw     = parts[parts.length - 1].split('?')[0] || 'Untitled Video';
+    const parts = decoded.split('/');
+    const raw = parts[parts.length - 1].split('?')[0] || 'Untitled Video';
     return raw.replace(/\.[^/.]+$/, '') || 'Untitled Video';
   } catch {
     return 'Untitled Video';
@@ -35,146 +55,171 @@ function getFileNameFromUrl(url) {
 }
 
 const LANGUAGE_OPTIONS = [
-  { code: 'en', label: 'English'    },
-  { code: 'hi', label: 'Hindi'      },
-  { code: 'es', label: 'Spanish'    },
-  { code: 'fr', label: 'French'     },
-  { code: 'de', label: 'German'     },
-  { code: 'ar', label: 'Arabic'     },
+  { code: 'en', label: 'English' },
+  { code: 'hi', label: 'Hindi' },
+  { code: 'es', label: 'Spanish' },
+  { code: 'fr', label: 'French' },
+  { code: 'de', label: 'German' },
+  { code: 'ar', label: 'Arabic' },
   { code: 'pt', label: 'Portuguese' },
-  { code: 'ja', label: 'Japanese'   },
-  { code: 'ko', label: 'Korean'     },
-  { code: 'zh', label: 'Chinese'    },
+  { code: 'ja', label: 'Japanese' },
+  { code: 'ko', label: 'Korean' },
+  { code: 'zh', label: 'Chinese' },
 ];
 
 // ─── Toast ───────────────────────────────────────────────────────────────────
 
-const Toast = ({ message, type, onClose }) => {
-  useEffect(() => {
-    if (type === 'loading') return;
-    const t = setTimeout(onClose, 4000);
-    return () => clearTimeout(t);
-  }, [onClose, type]);
 
-  const colors = { success:'bg-emerald-500', error:'bg-red-500', loading:'bg-[#128189]', info:'bg-slate-600' };
-  const icons  = { success:'fa-circle-check', error:'fa-circle-exclamation', loading:'fa-circle-notch fa-spin', info:'fa-circle-info' };
-
-  return (
-    <div
-      className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-3 px-5 py-3 rounded-2xl text-white shadow-2xl text-sm font-semibold ${colors[type]}`}
-      style={{ animation: 'toastUp .25s ease' }}
-    >
-      <i className={`fa-solid ${icons[type]}`} />
-      <span>{message}</span>
-    </div>
-  );
-};
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 const Preview = () => {
-  const navigate    = useNavigate();
+  const navigate = useNavigate();
   const { videoId } = useParams();
-  const location    = useLocation();
+  const location = useLocation();
 
-  // ── Router state from Translate.jsx ──
-  const passedVideoUrl  = location.state?.videoUrl  || '';
-  const passedCaptions  = location.state?.captions  || [];
-  const passedStyles    = location.state?.styles    || {};
-
-  // ✨ FIX: Array ke deep changes ko detect karne ke liye stringify
+  const passedVideoUrl = location.state?.videoUrl || '';
+  const passedCaptions = location.state?.captions || [];
+  const passedStyles = location.state?.styles || {};
   const passedCaptionsString = JSON.stringify(passedCaptions);
 
-  // Clean video name — strip extension, never show videoId
-  const passedVideoName = location.state?.videoName
-    ? location.state.videoName.replace(/\.[^/.]+$/, '')
-    : getFileNameFromUrl(passedVideoUrl);
+  // State-backed videoUrl and styles to survive refreshes
+  const [videoUrl, setVideoUrl] = useState(passedVideoUrl);
+  const [videoName, setVideoName] = useState(
+    location.state?.videoName
+      ? location.state.videoName.replace(/\.[^/.]+$/, '')
+      : getFileNameFromUrl(passedVideoUrl)
+  );
+  const passedVideoName = videoName;
 
-  // Merge styles with safe defaults
-  const styles = {
+  const [styles, setStyles] = useState({
     typography: 'Inter',
-    isBold:     true,
-    isItalic:   false,
-    isCaps:     false,
-    textColor:  '#FFFFFF',
-    bgColor:    '#000000',
-    bgOpacity:  40,
-    position:   'bottom-center',
-    fontSize:   16,
+    isBold: true,
+    isItalic: false,
+    isCaps: false,
+    textColor: '#FFFFFF',
+    bgColor: '#000000',
+    bgOpacity: 40,
+    position: 'bottom-center',
+    fontSize: 16,
     ...passedStyles,
-  };
+  });
 
   // ── State ──
-  const [captions,           setCaptions]        = useState([]);
+  const [captions, setCaptions] = useState([]);
   const [activeCaptionId, setActiveCaptionId] = useState(null);
-  const [isExporting,        setIsExporting]     = useState(false);
-  const [exportProgress,     setExportProgress]  = useState(0);
-  const [toast,              setToast]           = useState(null);
-  const [videoRatio,         setVideoRatio]      = useState(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
+  const loadingToastId = useRef(null);
+  const [videoRatio, setVideoRatio] = useState(null);
 
   // ✨ FIX: Agar return aate waqt pehle se activeLang state mein hai toh use karein, warna 'en'
-  const [activeLang,         setActiveLang]      = useState(location.state?.activeLang || 'en');
-  
-  const [showAddLang,        setShowAddLang]     = useState(false);
+  const [activeLang, setActiveLang] = useState(location.state?.activeLang || 'en');
+
+  const [showAddLang, setShowAddLang] = useState(false);
   const [selectedNewLang, setSelectedNewLang] = useState('fr');
-  const [addedLangs,         setAddedLangs]      = useState([]);
+  const [addedLangs, setAddedLangs] = useState([]);
 
-  const videoRef    = useRef(null);
+  const videoRef = useRef(null);
   const timelineRef = useRef(null);
-  const isDragging  = useRef(false);
+  const isDragging = useRef(false);
 
-  const [isPlaying,   setIsPlaying]   = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration,    setDuration]    = useState(0);
+  const [duration, setDuration] = useState(0);
 
-  const showToast = useCallback((msg, type) => setToast({ message: msg, type }), []);
 
-  // ── Load captions ──
+
+  // ── Load video and captions (refresh resilience) ──
   useEffect(() => {
-    if (!passedCaptions?.length) return;
-    const normalized = passedCaptions
-      .map((item) => ({
-        id:              item.id,
-        start_time:      Number(item.start_time),
-        end_time:        Number(item.end_time),
-        original_text:    item.original_text    || item.original_text || item.text || '',
-        translated_text: item.translated_text?.trim() || item.translated_text || '',
-        language:        item.language || '',
-        time:            formatTime(Number(item.start_time)),
-      }))
-      .sort((a, b) => a.start_time - b.start_time);
+    const loadData = async () => {
+      const token = localStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
 
-    setCaptions(normalized);
-    if (normalized.length) setActiveCaptionId(normalized[0].id);
+      try {
+        // 1. Fetch video preview details
+        const videoRes = await axios.get(
+          `http://127.0.0.1:8000/api/videos/${videoId}/preview/`,
+          { headers }
+        );
+        const videoData = videoRes.data?.data || {};
+        if (videoData.preview_url) {
+          setVideoUrl(videoData.preview_url);
+          setVideoName(videoData.original_filename?.replace(/\.[^/.]+$/, '') || 'Untitled Video');
+        }
 
-    // Auto-detect ONLY languages that actually have translations
-    const langMap = new Map();
+        // 2. Fetch list of all captions
+        const res = await axios.get(
+          `http://127.0.0.1:8000/api/captions/?video_id=${videoId}`,
+          { headers }
+        );
+        const raw = res.data?.data || [];
 
-    normalized.forEach((c) => {
-      const hasTranslation = c.translated_text?.trim();
+        const normalized = raw
+          .map((item) => ({
+            id: item.id,
+            start_time: Number(item.start_time),
+            end_time: Number(item.end_time),
+            original_text: item.original_text || item.text || '',
+            translated_text: item.translated_text?.trim() || item.translated_text || '',
+            language: item.language || '',
+            time: formatTime(Number(item.start_time)),
+          }))
+          .sort((a, b) => a.start_time - b.start_time);
 
-      if (!hasTranslation) return;        // ❌ skip empty translations
-      if (c.language === 'en') return;    // ❌ skip English
+        setCaptions(normalized);
+        if (normalized.length) setActiveCaptionId(normalized[0].id);
 
-      langMap.set(c.language, true);
-    });
+        // Restore custom styling values from first caption record if available
+        if (raw.length > 0) {
+          const first = raw[0];
+          setStyles({
+            typography: first.font_family || "Inter",
+            fontSize: first.font_size || 16,
+            textColor: first.font_color || "#FFFFFF",
+            bgColor: first.background_color || "#000000",
+            bgOpacity: first.bg_opacity ?? 40,
+            isBold: first.bold ?? true,
+            isItalic: first.italic ?? false,
+            isCaps: first.is_caps ?? false,
+            position: first.position || "bottom-center",
+          });
+        }
 
-    const langs = Array.from(langMap.keys());
-    const newAddedLangs = langs.map(code => ({
-      code,
-      label: LANGUAGE_OPTIONS.find(l => l.code === code)?.label || code,
-      status: 'generated',
-    }));
+        // Auto-detect ONLY languages that actually have translations
+        const langMap = new Map();
+        normalized.forEach((c) => {
+          const hasTranslation = c.translated_text?.trim();
+          if (!hasTranslation) return;
+          if (c.language === 'en') return;
+          langMap.set(c.language, true);
+        });
 
-    setAddedLangs(newAddedLangs);
+        const langs = Array.from(langMap.keys());
+        const newAddedLangs = langs.map(code => ({
+          code,
+          label: LANGUAGE_OPTIONS.find(l => l.code === code)?.label || code,
+          status: 'generated',
+        }));
 
-    // ✨ FIX: Jab Translate page se aao toh translated language automatically select ho jaye
-    if (!location.state?.activeLang && newAddedLangs.length > 0) {
-      setActiveLang(newAddedLangs[0].code);
-    }
+        setAddedLangs(newAddedLangs);
 
-  // ✨ FIX: Dependency array mein passedCaptionsString aur location.state add kiya
-  }, [passedCaptionsString, location.state?.activeLang]); // eslint-disable-line
+        // Jab Translate page se aao toh translated language automatically select ho jaye
+        if (location.state?.activeLang) {
+          setActiveLang(location.state.activeLang);
+        } else if (newAddedLangs.length > 0) {
+          setActiveLang(newAddedLangs[0].code);
+        } else {
+          setActiveLang(videoData.language || 'en');
+        }
+      } catch (err) {
+        console.error('Failed to load captions:', err.response?.data || err);
+        showToast('Failed to load preview details.', 'error');
+      }
+    };
+
+    loadData();
+  }, [videoId, passedCaptionsString, location.state?.activeLang]); // eslint-disable-line
 
   // ── Sync active caption ──
   useEffect(() => {
@@ -192,6 +237,24 @@ const Preview = () => {
     const { videoWidth, videoHeight } = videoRef.current;
     if (videoWidth && videoHeight) setVideoRatio(videoWidth >= videoHeight ? 'landscape' : 'portrait');
   };
+
+  const [videoElementHeight, setVideoElementHeight] = useState(360);
+
+  useEffect(() => {
+    if (!videoRef.current) return;
+    const updateHeight = () => {
+      if (videoRef.current) {
+        setVideoElementHeight(videoRef.current.clientHeight || 360);
+      }
+    };
+    updateHeight();
+    window.addEventListener("resize", updateHeight);
+    const timer = setInterval(updateHeight, 500);
+    return () => {
+      window.removeEventListener("resize", updateHeight);
+      clearInterval(timer);
+    };
+  }, [videoRef, captions]);
   const togglePlay = () => {
     if (!videoRef.current) return;
     videoRef.current.paused ? videoRef.current.play() : videoRef.current.pause();
@@ -214,9 +277,9 @@ const Preview = () => {
 
   useEffect(() => {
     const onMove = (e) => { if (!isDragging.current) return; const t = timeFromX(e.clientX); setCurrentTime(t); if (videoRef.current) videoRef.current.currentTime = t; };
-    const onUp   = ()  => { isDragging.current = false; };
+    const onUp = () => { isDragging.current = false; };
     window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup',   onUp);
+    window.addEventListener('mouseup', onUp);
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
   }, [timeFromX]);
 
@@ -249,17 +312,19 @@ const Preview = () => {
   };
 
   // ── Derived ──
-  const progressPct    = duration ? (currentTime / duration) * 100 : 0;
-  const bgRgb          = hexToRgb(styles.bgColor);
-  const isPortrait     = videoRatio === 'portrait';
+  const progressPct = duration ? (currentTime / duration) * 100 : 0;
+  const bgRgb = hexToRgb(styles.bgColor);
+  const isPortrait = videoRatio === 'portrait';
   const stylePreviewBg = `rgba(${bgRgb}, ${styles.bgOpacity / 100})`;
 
   // STRICT language rule: 'en' → original_text only | other → translated_text only (no mixing)
   const activeSubtitle = (() => {
-    const seg = captions.find(c => currentTime >= c.start_time && currentTime <= c.end_time);
+    // Filter captions to only the active language to prevent cross-language collisions!
+    const activeCaps = captions.filter(c => c.language === activeLang || (activeLang === 'en' && c.language === 'en'));
+    const seg = activeCaps.find(c => currentTime >= c.start_time && currentTime <= c.end_time);
     if (!seg) return null;
     if (activeLang === 'en') {
-      return seg.original_text || seg.original_text || null;
+      return seg.original_text || null;
     }
 
     return seg.translated_text?.trim()
@@ -268,12 +333,12 @@ const Preview = () => {
   })();
 
   const positionClass = ({
-    'top-left':      'justify-start items-start',
-    'top-center':    'justify-start items-center',
-    'top-right':     'justify-start items-end',
-    'bottom-left':   'justify-end items-start',
+    'top-left': 'justify-start items-start',
+    'top-center': 'justify-start items-center',
+    'top-right': 'justify-start items-end',
+    'bottom-left': 'justify-end items-start',
     'bottom-center': 'justify-end items-center',
-    'bottom-right':  'justify-end items-end',
+    'bottom-right': 'justify-end items-end',
   })[styles.position] || 'justify-end items-center';
 
   const videoContainerStyle = isPortrait
@@ -301,7 +366,7 @@ const Preview = () => {
         .top-nav { box-shadow: 0 1px 0 #e2e8f0, 0 2px 12px rgba(0,0,0,.04); }
       `}</style>
 
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
 
       <div className="w-full min-h-screen bg-[#F2F4F6] flex flex-col" style={{ fontFamily: "'DM Sans', sans-serif" }}>
 
@@ -312,7 +377,7 @@ const Preview = () => {
 
           {/* CENTER — Clean video name only, no ID */}
           <div className="flex w-full items-center justify-start">
-           <div className="flex items-center gap-2 min-w-0 flex-1">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               <i className="fa-solid fa-clapperboard text-brand-primary text-xs shrink-0" />
 
               <h1
@@ -322,7 +387,7 @@ const Preview = () => {
                 {passedVideoName}
               </h1>
             </div>
-             {videoRatio && (
+            {videoRatio && (
               <span className="hidden md:flex items-center text-[9px] font-bold text-brand-primary border border-brand-primary px-1.5 py-0.5 rounded uppercase shrink-0">
                 {isPortrait ? '9:16' : '16:9'}
               </span>
@@ -339,12 +404,12 @@ const Preview = () => {
             </button>
 
             <button
-  onClick={handleExport}
-  disabled={isExporting}
-  className={`px-4 py-2 rounded-xl text-white text-xs font-bold transition-all active:scale-95 ${isExporting ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#128189] hover:bg-[#0d7677]'}`}
->
-  Export Video
-</button>
+              onClick={handleExport}
+              disabled={isExporting}
+              className={`px-4 py-2 rounded-xl text-white text-xs font-bold transition-all active:scale-95 ${isExporting ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#128189] hover:bg-[#0d7677]'}`}
+            >
+              Export Video
+            </button>
           </div>
         </nav>
 
@@ -385,25 +450,59 @@ const Preview = () => {
                   )}
 
                   {/* Caption overlay — strict language rule applied here */}
-                  <div className={`absolute inset-0 px-6 py-5 flex flex-col pointer-events-none ${positionClass}`}>
-                    {activeSubtitle && (
-                      <div className="rounded-xl px-5 py-3 max-w-[90%] shadow-lg" style={{ backgroundColor: stylePreviewBg }}>
-                        <p
-                          className="text-center leading-snug break-words w-full"
-                          style={{
-                            color:         styles.textColor,
-                            fontFamily:    styles.typography,
-                            fontWeight:    styles.isBold   ? '700'       : '400',
-                            fontStyle:     styles.isItalic ? 'italic'    : 'normal',
-                            textTransform: styles.isCaps   ? 'uppercase' : 'none',
-                            fontSize:      `clamp(12px, ${styles.fontSize / 16}vw + 5px, ${styles.fontSize}px)`,
-                          }}
-                        >
-                          {activeSubtitle}
-                        </p>
+                  {(() => {
+                    const aspect_ratio = isPortrait ? 9/16 : 16/9;
+                    const target_h_player = videoElementHeight || 360;
+                    const target_w_player = target_h_player * aspect_ratio;
+                    const preview_margin_x = Math.max(24 * (target_h_player / 360), target_w_player * 0.08);
+                    const preview_margin_y = Math.max(24 * (target_h_player / 360), target_h_player * 0.08);
+
+                    return (
+                      <div
+                        className={`absolute inset-0 flex flex-col pointer-events-none ${positionClass}`}
+                        style={{
+                          paddingLeft: `${preview_margin_x}px`,
+                          paddingRight: `${preview_margin_x}px`,
+                          paddingTop: `${preview_margin_y}px`,
+                          paddingBottom: `${preview_margin_y}px`,
+                        }}
+                      >
+                        {activeSubtitle && (() => {
+                          const preview_font_size = styles.fontSize * (videoElementHeight / 360);
+                          const padding_y = styles.bgOpacity > 0 ? preview_font_size * 0.3 : 0;
+                          const padding_x = styles.bgOpacity > 0 ? preview_font_size * 0.3 : 0; // Symmetrical padding matching ASS outline
+                          const border_radius = 0; // ASS solid background box has sharp corners
+                          const isCaps = styles.isCaps;
+                          const displayText = isCaps ? activeSubtitle.toUpperCase() : activeSubtitle;
+
+                          return (
+                            <div
+                              className="pointer-events-auto shadow-lg"
+                              style={{
+                                backgroundColor: styles.bgOpacity > 0 ? `rgba(${bgRgb}, ${styles.bgOpacity / 100})` : "transparent",
+                                padding: `${padding_y}px ${padding_x}px`,
+                                borderRadius: `${border_radius}px`,
+                                maxWidth: "90%",
+                              }}
+                            >
+                              <p
+                                className="text-center leading-snug break-words w-full"
+                                style={{
+                                  color: styles.textColor,
+                                  fontFamily: styles.typography,
+                                  fontWeight: styles.isBold ? '700' : '400',
+                                  fontStyle: styles.isItalic ? 'italic' : 'normal',
+                                  fontSize: `${preview_font_size}px`,
+                                }}
+                              >
+                                {displayText}
+                              </p>
+                            </div>
+                          );
+                        })()}
                       </div>
-                    )}
-                  </div>
+                    );
+                  })()}
 
                   {/* Controls bar */}
                   <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/85 to-transparent px-4 pt-8 pb-3">
@@ -468,7 +567,7 @@ const Preview = () => {
           {/* ════════════════════
               RIGHT — Sidebar
           ════════════════════ */}
-           <aside className="w-72 shrink-0 bg-white border-r border-slate-200 overflow-y-auto custom-scrollbar py-5 px-4 flex flex-col gap-5 fade-in">
+          <aside className="w-72 shrink-0 bg-white border-r border-slate-200 overflow-y-auto custom-scrollbar py-5 px-4 flex flex-col gap-5 fade-in">
 
             {/* ─── Subtitle Style ─── */}
             <section>
@@ -481,12 +580,12 @@ const Preview = () => {
               >
                 <div className="rounded-lg px-4 py-2" style={{ backgroundColor: stylePreviewBg }}>
                   <p style={{
-                    color:         styles.textColor,
-                    fontFamily:    styles.typography,
-                    fontWeight:    styles.isBold   ? '700'       : '400',
-                    fontStyle:     styles.isItalic ? 'italic'    : 'normal',
-                    textTransform: styles.isCaps   ? 'uppercase' : 'none',
-                    fontSize:      Math.min(styles.fontSize, 13),
+                    color: styles.textColor,
+                    fontFamily: styles.typography,
+                    fontWeight: styles.isBold ? '700' : '400',
+                    fontStyle: styles.isItalic ? 'italic' : 'normal',
+                    textTransform: styles.isCaps ? 'uppercase' : 'none',
+                    fontSize: Math.min(styles.fontSize, 13),
                   }}>
                     Preview Style
                   </p>
@@ -506,23 +605,23 @@ const Preview = () => {
                     <p className="text-[9px] font-bold tracking-widest text-slate-400 uppercase">Background Opacity</p>
                     <span className="text-[9px] font-bold text-[#128189] bg-[#E1F2F3] px-1.5 py-0.5 rounded">{styles.bgOpacity}%</span>
                   </div>
-                  <input type="range" min={0} max={100} value={styles.bgOpacity} readOnly onChange={() => {}} className="w-full accent-[#128189]" />
+                  <input type="range" min={0} max={100} value={styles.bgOpacity} readOnly onChange={() => { }} className="w-full accent-[#128189]" />
                 </div>
                 <div>
                   <div className="flex justify-between items-center mb-1">
                     <p className="text-[9px] font-bold tracking-widest text-slate-400 uppercase">Font Size</p>
                     <span className="text-[9px] font-bold text-[#128189] bg-[#E1F2F3] px-1.5 py-0.5 rounded">{styles.fontSize}px</span>
                   </div>
-                  <input type="range" min={10} max={36} value={styles.fontSize} readOnly onChange={() => {}} className="w-full accent-[#128189]" />
+                  <input type="range" min={10} max={36} value={styles.fontSize} readOnly onChange={() => { }} className="w-full accent-[#128189]" />
                 </div>
               </div>
 
               {/* Style badges */}
               <div className="flex flex-wrap gap-1.5">
                 <span className="text-[9px] font-bold bg-slate-100 text-slate-500 px-2.5 py-1 rounded-lg uppercase tracking-wide">{styles.typography}</span>
-                {styles.isBold   && <span className="text-[9px] font-black bg-[#E1F2F3] text-[#128189] px-2.5 py-1 rounded-lg uppercase">Bold</span>}
+                {styles.isBold && <span className="text-[9px] font-black bg-[#E1F2F3] text-[#128189] px-2.5 py-1 rounded-lg uppercase">Bold</span>}
                 {styles.isItalic && <span className="text-[9px] italic bg-[#E1F2F3] text-[#128189] px-2.5 py-1 rounded-lg">Italic</span>}
-                {styles.isCaps   && <span className="text-[9px] font-bold bg-[#E1F2F3] text-[#128189] px-2.5 py-1 rounded-lg uppercase">Caps</span>}
+                {styles.isCaps && <span className="text-[9px] font-bold bg-[#E1F2F3] text-[#128189] px-2.5 py-1 rounded-lg uppercase">Caps</span>}
                 <span className="text-[9px] font-semibold bg-slate-100 text-slate-500 px-2.5 py-1 rounded-lg capitalize">{styles.position.replace('-', ' ')}</span>
               </div>
 
@@ -536,66 +635,64 @@ const Preview = () => {
 
             <div className="h-px bg-slate-100" />
 
-        {/* ─── Language Selection ─── */}
-<section>
-  <p className="text-[10px] font-bold tracking-[.12em] text-slate-500 uppercase mb-3">
-    Languages
-  </p>
+            {/* ─── Language Selection ─── */}
+            <section>
+              <p className="text-[10px] font-bold tracking-[.12em] text-slate-500 uppercase mb-3">
+                Languages
+              </p>
 
-  <div className="flex flex-col gap-1.5">
-    
-    {/* English (source) */}
-    <button
-      onClick={() => setActiveLang('en')}
-      className={`flex items-center gap-3 px-3.5 py-3 rounded-xl border transition-all text-left ${
-        activeLang === 'en'
-          ? 'bg-white border-[#128189] shadow-sm'
-          : 'bg-slate-50 border-transparent hover:border-slate-200'
-      }`}
-    >
-      <i className="fa-solid fa-globe text-sm text-slate-400" />
-      <span className="text-sm font-semibold text-slate-700 flex-1">
-        English <span className="text-[10px] text-slate-400">(Source)</span>
-      </span>
+              <div className="flex flex-col gap-1.5">
 
-      {activeLang === 'en' && (
-        <i className="fa-solid fa-circle-check text-[#128189] text-sm" />
-      )}
-    </button>
+                {/* English (source) */}
+                <button
+                  onClick={() => setActiveLang('en')}
+                  className={`flex items-center gap-3 px-3.5 py-3 rounded-xl border transition-all text-left ${activeLang === 'en'
+                    ? 'bg-white border-[#128189] shadow-sm'
+                    : 'bg-slate-50 border-transparent hover:border-slate-200'
+                    }`}
+                >
+                  <i className="fa-solid fa-globe text-sm text-slate-400" />
+                  <span className="text-sm font-semibold text-slate-700 flex-1">
+                    English <span className="text-[10px] text-slate-400">(Source)</span>
+                  </span>
 
-    {/* Only languages that exist in captions */}
-    {addedLangs
-      .filter(lang => lang.status === 'generated')
-      .map(lang => (
-        <button
-          key={lang.code}
-          onClick={() => setActiveLang(lang.code)}
-          className={`flex items-center gap-3 px-3.5 py-3 rounded-xl border transition-all text-left ${
-            activeLang === lang.code
-              ? 'bg-white border-[#128189] shadow-sm'
-              : 'bg-slate-50 border-transparent hover:border-slate-200'
-          }`}
-        >
-          <i className="fa-solid fa-language text-sm text-slate-400" />
+                  {activeLang === 'en' && (
+                    <i className="fa-solid fa-circle-check text-[#128189] text-sm" />
+                  )}
+                </button>
 
-          <span className="text-sm font-semibold text-slate-700 flex-1">
-            {lang.label}
-          </span>
+                {/* Only languages that exist in captions */}
+                {addedLangs
+                  .filter(lang => lang.status === 'generated')
+                  .map(lang => (
+                    <button
+                      key={lang.code}
+                      onClick={() => setActiveLang(lang.code)}
+                      className={`flex items-center gap-3 px-3.5 py-3 rounded-xl border transition-all text-left ${activeLang === lang.code
+                        ? 'bg-white border-[#128189] shadow-sm'
+                        : 'bg-slate-50 border-transparent hover:border-slate-200'
+                        }`}
+                    >
+                      <i className="fa-solid fa-language text-sm text-slate-400" />
 
-          {activeLang === lang.code && (
-            <i className="fa-solid fa-circle-check text-[#128189] text-sm" />
-          )}
-        </button>
-      ))}
+                      <span className="text-sm font-semibold text-slate-700 flex-1">
+                        {lang.label}
+                      </span>
 
-    {/* Empty state */}
-    {addedLangs.filter(l => l.status === 'generated').length === 0 && (
-      <div className="text-xs text-slate-400 px-2 py-2">
-        No translated captions available
-      </div>
-    )}
-  </div>
-</section>
+                      {activeLang === lang.code && (
+                        <i className="fa-solid fa-circle-check text-[#128189] text-sm" />
+                      )}
+                    </button>
+                  ))}
+
+                {/* Empty state */}
+                {addedLangs.filter(l => l.status === 'generated').length === 0 && (
+                  <div className="text-xs text-slate-400 px-2 py-2">
+                    No translated captions available
+                  </div>
+                )}
+              </div>
+            </section>
 
             <div className="h-px bg-slate-100" />
 
@@ -631,7 +728,7 @@ const Preview = () => {
           </aside>
 
         </div>
-        
+
       </div>
     </>
   );
