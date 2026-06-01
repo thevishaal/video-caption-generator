@@ -1,7 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { showToast } from "../../utils/toastUtils";
 
 const ResetPassword = () => {
   const { token } = useParams();
@@ -32,7 +31,7 @@ const ResetPassword = () => {
     e.preventDefault();
 
     if (formData.new_password !== formData.confirm_password) {
-      return toast.error("Passwords do not match!");
+      return showToast.error("Passwords do not match!");
     }
 
     setIsLoading(true);
@@ -55,13 +54,13 @@ const ResetPassword = () => {
       const data = await res.json();
 
       if (res.ok || data.success) {
-        toast.success(data.message || "Password reset successfully! 🔐");
+        showToast.success(data.message || "Password reset successfully!");
         setTimeout(() => navigate("/login"), 2000);
       } else {
-        toast.error(data.message || "Reset failed. The token might be expired.");
+        showToast.error(data.message || "Reset failed. The token might be expired.");
       }
     } catch (err) {
-      toast.error("Server error. Please try again later.");
+      showToast.error("Server error. Please try again later.");
     } finally {
       setIsLoading(false);
     }
@@ -83,14 +82,14 @@ const ResetPassword = () => {
 
   return (
     <div className="bg-[var(--color-bg-app)] font-sans text-slate-800 min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden">
-      <ToastContainer position="top-center" autoClose={2000} theme="light" />
-      
+
+
       {/* Subtle Background Glow */}
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-teal-300/20 rounded-full mix-blend-multiply filter blur-[100px] pointer-events-none"></div>
 
       {/* Main Card */}
       <main className="w-full max-w-md bg-white rounded-[2.5rem] shadow-premium p-8 md:p-12 relative z-10 animate-fade-in-up border border-slate-50">
-        
+
         {/* Header Content */}
         <div className="mb-8 text-center">
           <div className="w-16 h-16 mx-auto bg-[var(--color-bg-active)] text-[var(--color-brand-primary)] rounded-2xl flex items-center justify-center mb-6 shadow-inner">
@@ -108,7 +107,7 @@ const ResetPassword = () => {
 
         {/* Form Section */}
         <form className="space-y-5" onSubmit={handleSubmit}>
-          
+
           {/* New Password */}
           <div className="space-y-1.5 relative">
             <label className="text-[11px] font-bold uppercase tracking-widest text-slate-400 ml-1">New Password</label>
@@ -180,7 +179,7 @@ const ResetPassword = () => {
         <div className="mt-8 pt-8 border-t border-slate-100 text-center">
           <p className="text-slate-400 text-sm font-medium">
             Remembered your password?{" "}
-            <span 
+            <span
               onClick={() => navigate("/login")}
               className="text-[var(--color-brand-primary)] font-bold cursor-pointer hover:underline"
             >

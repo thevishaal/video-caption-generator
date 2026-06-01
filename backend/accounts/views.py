@@ -1,3 +1,4 @@
+import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from .serializers import RegisterSerializer, LoginSerializer, UserSerializer, ChangePasswordSerializer, ForgotPasswordSerializer, ResetPasswordSerializer
@@ -12,6 +13,9 @@ from .utils import generate_token
 from django.conf import settings
 from .utils import async_task, send_password_reset_email, send_verification_email
 from rest_framework.permissions import AllowAny
+
+logger = logging.getLogger(__name__)
+
 
 
 class Home(APIView):
@@ -33,7 +37,7 @@ class RegisterView(APIView):
 
             return Response({
                 "success": True,
-                "message": "User registered successfully. Please check your email for verification.",
+                "message": "Account created! Check your email to verify.",
                 "data": serializer.validated_data
             }, status=status.HTTP_201_CREATED)
 
@@ -100,7 +104,7 @@ class ResendVerificationEmailView(APIView):
             # Send verification email
             verification_link = f"{settings.FRONTEND_URL}/verify-email/{raw_token}"
             send_verification_email(user.email, verification_link)
-            print(f"Verification token for {user.email}: {raw_token}")
+            logger.info(f"Verification email resent to {user.email}.")
 
             return Response({"success": True, "message": "Verification email resent. Please check your inbox."}, status=status.HTTP_200_OK)
 
@@ -121,7 +125,7 @@ class LoginView(APIView):
                 "data": serializer.validated_data
             }, status=status.HTTP_200_OK)
         
-        print("VALIDATION ERRORS:", serializer.errors)
+        logger.warning(f"Login validation errors: {serializer.errors}")
         return Response({
             "success": False,   
             "errors": serializer.errors
@@ -270,11 +274,11 @@ class ForgotPasswordView(APIView):
 
                 reset_link = f"{settings.FRONTEND_URL}/reset-password/{raw_token}"
                 async_task(send_password_reset_email, user.email, reset_link)
-                print(f"Password reset token for {user.email}: {raw_token}")
+                logger.info(f"Password reset email sent to {user.email}.")
 
                 return Response({
                     "success": True,
-                    "message": "Password reset token generated. Please check your email."
+                    "message": "If an account exists with this email, a password reset link has been sent."
                 }, status=status.HTTP_200_OK)
 
             except User.DoesNotExist:
@@ -322,11 +326,41 @@ class ResetPasswordView(APIView):
                     "message": "Invalid reset token."
                 }, status=400)
 
-        print("ERRORS:", serializer.errors)  # 👈 debug
+        logger.warning(f"Reset password validation errors: {serializer.errors}")
         return Response({
             "success": False,
             "errors": serializer.errors
         }, status=400)
+
+
+class ProfileUpdateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request):
+        user = request.user
+
+        if not user.is_verified:
+            return Response({
+                "success": False,
+                "message": "Email not verified. Please verify your email first."
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        first_name = request.data.get("first_name")
+        last_name = request.data.get("last_name")
+
+        if first_name is not None:
+            user.first_name = first_name.strip()
+        if last_name is not None:
+            user.last_name = last_name.strip()
+
+        user.save()
+        serializer = UserSerializer(user)
+        return Response({
+            "success": True,
+            "message": "Profile updated successfully.",
+            "data": serializer.data
+        }, status=status.HTTP_200_OK)
+
 
 
 

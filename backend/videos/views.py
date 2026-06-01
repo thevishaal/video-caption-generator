@@ -14,6 +14,7 @@ from .serializers import (
     ExportJobSerializer,
 )
 from .services import populate_video_metadata, export_video_with_captions
+from .tasks import run_in_background
 
 
 # ---------------------------------------------------------------------------
@@ -66,16 +67,9 @@ class VideoUploadView(APIView):
         serializer = VideoUploadSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         video = serializer.save()
-        
 
-        # populate_video_metadata does two things in one call:
-        #   1. Reads ffprobe output → saves width/height/fps/codec/duration.
-        #   2. Extracts audio with ffmpeg → saves WAV to video.audio_file in DB.
-        #      The captions app then reads video.audio_file for transcription
-        #      without needing to re-run ffmpeg.
-        # If it fails (e.g. ffmpeg not installed in dev) the video stays in
-        # "uploaded" status and audio_file remains null; the captions app
-        # must handle a missing audio_file gracefully.
+        # Extract video metadata and audio WAV synchronously since it's fast
+        # and enables seamless immediately transition to the captions step.
         try:
             populate_video_metadata(video)
         except Exception:
@@ -91,7 +85,6 @@ class VideoUploadView(APIView):
             data=response_data,
             message="Video uploaded successfully.",
             http_status=status.HTTP_201_CREATED,
-
         )
 
 
@@ -114,7 +107,7 @@ class VideoPreviewView(APIView):
 
 
 # ---------------------------------------------------------------------------
-# Video export
+# Video export (Asynchronous background task)
 # ---------------------------------------------------------------------------
 
 class VideoExportView(APIView):
@@ -124,6 +117,32 @@ class VideoExportView(APIView):
         video = get_object_or_404(Video, pk=pk)
         self.check_object_permissions(self.request, video)
         return video
+
+    def get(self, request, pk):
+        video = self.get_object(pk)
+        
+        # Query parameters to retrieve option-specific export job
+        resolution = request.query_params.get("resolution")
+        export_format = request.query_params.get("export_format")
+        language = request.query_params.get("language")
+        caption_mode = request.query_params.get("caption_mode")
+        
+        jobs = ExportJob.objects.filter(video=video)
+        if resolution:
+            jobs = jobs.filter(resolution=resolution)
+        if export_format:
+            jobs = jobs.filter(export_format=export_format)
+        if language:
+            jobs = jobs.filter(language=language)
+        if caption_mode:
+            jobs = jobs.filter(caption_mode=caption_mode)
+            
+        latest_job = jobs.order_by("-created_at").first()
+        if not latest_job:
+            return api_success(data=None, message="No matching export jobs found.")
+
+        serializer = ExportJobSerializer(latest_job, context={"request": request})
+        return api_success(data=serializer.data, message="Latest matching export job fetched.")
 
     def post(self, request, pk):
         video = self.get_object(pk)
@@ -144,27 +163,21 @@ class VideoExportView(APIView):
             resolution    = serializer.validated_data["resolution"],
             language      = serializer.validated_data["language"],
             caption_mode  = serializer.validated_data["caption_mode"],
+            status        = "processing"
         )
 
-        try:
-            export_video_with_captions(export_job)
-        except Exception as exc:
-            export_job.refresh_from_db()
-            return api_error(
-                message=f"Export failed: {str(exc)}",
-                data=ExportJobSerializer(export_job, context={"request": request}).data,
-                http_status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        # Offload slow render to our ThreadPool background runner
+        run_in_background(export_video_with_captions, export_job)
 
-        export_job.refresh_from_db()
         return api_success(
             data=ExportJobSerializer(export_job, context={"request": request}).data,
-            message="Video exported successfully.",
+            message="Video export started in the background.",
+            http_status=status.HTTP_201_CREATED,
         )
 
 
 # ---------------------------------------------------------------------------
-# Export status poll  (frontend polls this to show progress bar)
+# Export status poll (frontend polls this to show progress bar)
 # ---------------------------------------------------------------------------
 
 class VideoExportStatusView(APIView):

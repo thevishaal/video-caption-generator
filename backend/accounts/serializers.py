@@ -1,20 +1,17 @@
-from rest_framework import serializers
-from .models import User
-import secrets, hashlib
-from .utils import generate_token, async_task, send_verification_email
+import logging
+import hashlib
+import secrets
 from datetime import datetime, timedelta
-from rest_framework_simplejwt.tokens import RefreshToken
+from django.conf import settings
 from django.contrib.auth import authenticate
-from django.conf import settings
-
-
-from rest_framework import serializers
-from django.conf import settings
 from django.utils import timezone
-from datetime import timedelta
-
+from rest_framework import serializers
+from rest_framework_simplejwt.tokens import RefreshToken
 from .models import User
-from .utils import generate_token, send_verification_email
+from .utils import generate_token, async_task, send_verification_email
+
+logger = logging.getLogger(__name__)
+
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -57,7 +54,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         send_verification_email(user.email, verification_link)
 
-        print(f"Verification token for {user.email}: {raw_token}")
+        logger.info(f"Verification email sent to {user.email}.")
 
         return user
 

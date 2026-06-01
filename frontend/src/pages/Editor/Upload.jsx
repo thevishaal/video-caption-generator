@@ -57,8 +57,6 @@ const videoUrl =
   res.data?.data?.preview_url ||
   URL.createObjectURL(fileToUpload);
 
-console.log("Upload Response:", res.data);
-
 if (videoId) {
   setTimeout(() => {
     navigate(`/editor/upload/captions/${videoId}`, {

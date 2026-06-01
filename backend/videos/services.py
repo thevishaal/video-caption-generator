@@ -120,81 +120,108 @@ def build_srt_file(video: Video, language: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Export pipeline
-# ---------------------------------------------------------------------------
-
 def export_video_with_captions(export_job: ExportJob) -> ExportJob:
     """
-    Export a video with optional burned-in subtitles or separate SRT using ffmpeg.
+    Export a video with optional burned-in subtitles or separate SRT using ffmpeg/ass.
 
     Steps:
-      1. Try to build an SRT file from Caption records.
-         - caption_mode="burned"  → burn subtitles into video frames.
-         - caption_mode="srt"     → must have captions; skip burning, just
-                                    export the clean video (SRT delivered via
-                                    a separate download link from build_srt_file).
-      2. Run ffmpeg to encode the video.
-      3. Save output to ExportJob.output_file.
-      4. Update status to completed / failed.
+      1. Try to build styled ASS subtitles from Caption records.
+      2. If caption_mode is "burned", use ASS subtitle burner to compile the video.
+      3. If caption_mode is "srt" (or no captions found for "burned" fallback), output scaled clean video.
+      4. Save output to ExportJob.output_file with a meaningful filename.
+      5. Update status to completed / failed.
     """
     video = export_job.video
     export_job.status      = EXPORT_STATUS_PROCESSING
     export_job.error_message = ""
     export_job.save(update_fields=["status", "error_message", "updated_at"])
 
-    srt_path     = None
-    use_captions = False   # whether to burn subs into the video stream
+    # 1. Construct a meaningful export filename based on original video, language, and resolution
+    from django.utils.text import slugify
+    original_base = os.path.splitext(video.original_filename)[0]
+    safe_base = slugify(original_base) or "video"
+    res_label = export_job.resolution.split("x")[-1] + "p"
+    final_name = f"{safe_base}_{export_job.language}_{res_label}.{export_job.export_format}"
 
-    # Step 1 — attempt to build SRT
-    try:
-        srt_path = build_srt_file(video=video, language=export_job.language)
-        # Only actually burn if mode is "burned"
-        use_captions = (export_job.caption_mode == ExportJob.CAPTION_MODE_BURNED)
-    except Exception:
-        if export_job.caption_mode == ExportJob.CAPTION_MODE_SRT:
-            # SRT mode *requires* captions to exist — fail early with a clear message
-            export_job.status        = EXPORT_STATUS_FAILED
-            export_job.error_message = (
-                f"No captions found for language '{export_job.language}'. "
-                "Generate captions before exporting as SRT."
-            )
-            export_job.save(update_fields=["status", "error_message", "updated_at"])
-            return export_job
-        # "burned" mode without captions → export the raw video (no subtitles)
-        use_captions = False
-
-    # Step 2 — encode with ffmpeg
-    suffix      = f".{export_job.export_format}"
+    # 2. Compile video path
     output_path = None
+    use_burned = (export_job.caption_mode == ExportJob.CAPTION_MODE_BURNED)
 
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            output_path = tmp.name
+        from captions.models import Caption
+        captions = list(
+            Caption.objects.filter(video=video, language=export_job.language).order_by("start_time")
+        )
+        if not captions:
+            # Fallback to the original language captions if target lang is empty
+            captions = list(Caption.objects.filter(video=video).order_by("start_time"))
 
-        input_path = video.original_file.path
-        command    = ["ffmpeg", "-y", "-i", input_path]
+        if use_burned and captions:
+            # --- BURNED CAPTIONS VIA STYLED ASS ---
+            from captions.services.ffmpeg_subtitle import burn_subtitles_into_video
+            use_translated = (
+                export_job.language != video.language and
+                any(c.translated_text for c in captions)
+            )
+            # Use the high-fidelity ASS subtitle burner
+            output_path = burn_subtitles_into_video(
+                video_path=video.original_file.path,
+                captions=captions,
+                video_id=video.id,
+                language=export_job.language,
+                resolution=export_job.resolution,
+                export_format=export_job.export_format,
+                use_translated=use_translated,
+            )
+        else:
+            # --- CLEAN VIDEO EXPORT (SRT mode or no captions) ---
+            if export_job.caption_mode == ExportJob.CAPTION_MODE_SRT and not captions:
+                # SRT mode requires captions to exist — fail early
+                export_job.status        = EXPORT_STATUS_FAILED
+                export_job.error_message = (
+                    f"No captions found for language '{export_job.language}'. "
+                    "Generate captions before exporting as SRT."
+                )
+                export_job.save(update_fields=["status", "error_message", "updated_at"])
+                return export_job
 
-        if use_captions and srt_path:
-            # Escape the path for the ffmpeg subtitles filter
-            subtitle_path = srt_path.replace("\\", "/").replace(":", "\\:")
-            command += ["-vf", f"subtitles='{subtitle_path}'"]
+            # Render clean scaled video
+            suffix = f".{export_job.export_format}"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                output_path = tmp.name
 
-        command += [
-            "-map", "0:v:0",      # first video stream
-            "-map", "0:a:0",      # first audio stream
-            "-s",  export_job.resolution,
-            "-c:v", "libx264",
-            "-preset", "medium",
-            "-crf", "23",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            output_path,
-        ]
+            from .utils import run_command
+            
+            target_w, target_h = map(int, export_job.resolution.split("x"))
+            if video.height and video.width:
+                if video.height > video.width and target_w > target_h:
+                    target_w, target_h = target_h, target_w
+                elif video.width > video.height and target_h > target_w:
+                    target_w, target_h = target_h, target_w
 
-        run_command(command)
+            vf_filter = (
+                f"scale=w={target_w}:h={target_h}:force_original_aspect_ratio=decrease,"
+                f"pad=w={target_w}:h={target_h}:x=(ow-iw)/2:y=(oh-ih)/2:color=black"
+            )
 
-        # Step 3 — save encoded file to ExportJob record
-        final_name = f"{video.id}_export.{export_job.export_format}"
+            input_path = video.original_file.path
+            command = [
+                "ffmpeg", "-y", "-i", input_path,
+                "-vf", vf_filter,
+                "-map", "0:v:0",      # first video stream
+                "-map", "0:a:0",      # first audio stream
+                "-map_metadata", "0", # preserve metadata
+                "-metadata:s:v:0", "rotate=0", # Reset stream rotation tag to prevent double-rotation
+                "-c:v", "libx264",
+                "-preset", "medium",
+                "-crf", "23",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                output_path,
+            ]
+            run_command(command)
+
+        # 3. Save encoded file to ExportJob record
         with open(output_path, "rb") as encoded_file:
             export_job.output_file.save(final_name, File(encoded_file), save=False)
 
@@ -211,16 +238,15 @@ def export_video_with_captions(export_job: ExportJob) -> ExportJob:
         raise
 
     finally:
-        # Clean up temp files in all cases
+        # Clean up local temporary file if one was produced
         if output_path and os.path.exists(output_path):
-            os.remove(output_path)
-        if srt_path and os.path.exists(srt_path):
-            srt_dir = os.path.dirname(srt_path)
-            os.remove(srt_path)
-            try:
-                os.rmdir(srt_dir)
-            except OSError:
+            if hasattr(export_job.output_file, 'path') and output_path == export_job.output_file.path:
                 pass
+            else:
+                try:
+                    os.remove(output_path)
+                except OSError:
+                    pass
 
     return export_job
 
@@ -281,38 +307,3 @@ def transcribe_video(video: Video) -> list[dict]:
     ]
 
 
-# def translate_caption_text(text: str, target_language: str) -> str:
-#     """
-#     Translate a single caption string into target_language using Groq LLM.
-#     Returns the translated string.
-#     Called by the captions app per-segment or per-batch.
-#     """
-#     import requests
-#     from django.conf import settings
-
-#     prompt = (
-#         f"Translate the following subtitle text into {target_language}. "
-#         f"Return ONLY the translated text with no explanation or quotes.\n\n"
-#         f"Text: {text}"
-#     )
-
-#     response = requests.post(
-#         "https://api.groq.com/openai/v1/chat/completions",
-#         headers={
-#             "Authorization": f"Bearer {settings.GROQ_API_KEY}",
-#             "Content-Type": "application/json",
-#         },
-#         json={
-#             "model": "llama3-8b-8192",
-#             "messages": [{"role": "user", "content": prompt}],
-#             "temperature": 0.3,
-#         },
-#         timeout=30,
-#     )
-
-#     if response.status_code != 200:
-#         raise RuntimeError(
-#             f"Groq translation failed ({response.status_code}): {response.text}"
-#         )
-
-#     return response.json()["choices"][0]["message"]["content"].strip()

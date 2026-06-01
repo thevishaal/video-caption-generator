@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { toast } from 'react-toastify';
+import { showToast } from '../../utils/toastUtils';
 
 const UserProfile = ({ user }) => {
     const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -42,7 +42,7 @@ const UserProfile = ({ user }) => {
                     }
                 );
             }
-            toast.success("Logged out successfully");
+            showToast.success("Logged out successfully");
         } catch (error) {
             console.error("Logout failed on server:", error.response?.data || error.message);
             // Server fail ho tab bhi local clean-up zaroori hai

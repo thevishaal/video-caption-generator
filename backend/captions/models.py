@@ -52,7 +52,6 @@ class Caption(models.Model):
         default=False,
         help_text="Indicates if caption text should be rendered in uppercase"
     )
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

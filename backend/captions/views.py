@@ -98,32 +98,58 @@ class TranslateCaptionsView(APIView):
 
         video = get_object_or_404(Video, pk=ser.validated_data["video_id"], owner=request.user)
         target_language = ser.validated_data["target_language"]
-        caption_ids = ser.validated_data.get("caption_ids")
 
-        qs = Caption.objects.filter(video=video)
-        if caption_ids:
-            qs = qs.filter(id__in=caption_ids)
-        qs = qs.order_by("start_time")
+        # Base language is original language of the video (or if not specified, default to "en")
+        base_language = video.language or "en"
+        base_captions = Caption.objects.filter(video=video, language=base_language).order_by("start_time")
+        
+        # Fallback if no captions exist under base_language: try any caption for this video
+        if not base_captions.exists():
+            first_cap = Caption.objects.filter(video=video).first()
+            if first_cap:
+                base_language = first_cap.language
+                base_captions = Caption.objects.filter(video=video, language=base_language).order_by("start_time")
 
-        if not qs.exists():
-            return api_error("No captions found. Generate captions first.", http_status=status.HTTP_404_NOT_FOUND)
+        if not base_captions.exists():
+            return api_error("No base captions found to translate. Generate captions first.", http_status=status.HTTP_404_NOT_FOUND)
 
-        texts = [c.original_text for c in qs]
+        # Map text elements to translate
+        texts = [c.translated_text or c.original_text for c in base_captions]
         try:
             translated = translate_captions(texts, target_language)
         except Exception as e:
             return api_error(f"Translation failed: {e}", http_status=status.HTTP_502_BAD_GATEWAY)
 
-        updated = []
-        for cap, trans in zip(qs, translated):
-            cap.translated_text = trans
-            cap.language = target_language
-            updated.append(cap)
-        Caption.objects.bulk_update(updated, ["translated_text", "language"])
+        # Clear existing translations for the target language to prevent duplicate rows
+        Caption.objects.filter(video=video, language=target_language).delete()
+
+        new_captions = []
+        for cap, trans in zip(base_captions, translated):
+            new_cap = Caption(
+                video=video,
+                start_time=cap.start_time,
+                end_time=cap.end_time,
+                original_text=cap.original_text,
+                translated_text=trans,
+                language=target_language,
+                font_family=cap.font_family,
+                font_size=cap.font_size,
+                font_color=cap.font_color,
+                background_color=cap.background_color,
+                bg_opacity=cap.bg_opacity,
+                position=cap.position,
+                alignment=cap.alignment,
+                bold=cap.bold,
+                italic=cap.italic,
+                is_caps=cap.is_caps,
+            )
+            new_captions.append(new_cap)
+
+        created = Caption.objects.bulk_create(new_captions)
 
         return api_success(
-            data=CaptionSerializer(updated, many=True).data,
-            message=f"{len(updated)} captions translated to '{target_language}'.",
+            data=CaptionSerializer(created, many=True).data,
+            message=f"{len(created)} captions translated to '{target_language}'.",
         )
 
 
@@ -133,7 +159,7 @@ class CaptionStyleView(APIView):
     """PUT /api/captions/style"""
     permission_classes = [IsAuthenticated]
 
-    # Added is_caps and bg_opacity to allowlist
+    # Added is_caps and bg_opacity, stroke, shadow and spacing to allowlist
     STYLE_FIELDS = [
         "font_family", "font_size", "font_color", "background_color",
         "position", "alignment", "bold", "italic",
@@ -240,95 +266,6 @@ class CaptionDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-# ── Export (burn subtitles) ───────────────────────────────────────────────────
-
-class VideoCaptionExportView(APIView):
-    """
-    POST /api/captions/videos/<uuid:video_id>/export
-    Burns captions into the video using FFmpeg.
-    Uses videos.ExportJob for status tracking.
-    """
-    permission_classes = [IsAuthenticated, IsVideoOwner]
-
-    def post(self, request, video_id):
-        from videos.models import ExportJob
-        from videos.serializers import ExportRequestSerializer, ExportJobSerializer
-
-        video = get_object_or_404(Video, pk=video_id, owner=request.user)
-
-        if video.status != "ready":
-            return api_error("Video not ready for export.")
-
-        ser = ExportRequestSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        data = ser.validated_data
-
-        language = data["language"] 
-        original_language = video.language
-        use_translated = (
-            language != video.language and
-            Caption.objects.filter(
-                video=video,
-                language=language,
-                translated_text__isnull=False
-            ).exclude(translated_text='').exists()
-        )
-
-        captions = list(
-            Caption.objects.filter(video=video, language=language).order_by("start_time")
-        )
-        if not captions:
-            captions = list(Caption.objects.filter(video=video).order_by("start_time"))
-
-        if not captions:
-            return api_error("No captions found. Generate captions first.")
-
-        use_translated = (
-                language != video.language and
-                any(c.translated_text for c in captions)
-            )
-        
-        job = ExportJob.objects.create(
-            video=video,
-            requested_by=request.user,
-            export_format=data["export_format"],
-            resolution=data["resolution"],
-            language=language,
-            caption_mode=data["caption_mode"],
-            status="processing",
-        )
-
-        try:
-            output_path = burn_subtitles_into_video(
-                video_path=video.original_file.path,
-                captions=captions,
-                video_id=video.id,
-                language=language,
-                resolution=data["resolution"],
-                export_format=data["export_format"],
-                use_translated=use_translated,
-            )
-            # Save output into ExportJob.output_file
-            from django.core.files import File
-            with open(output_path, "rb") as f:
-                job.output_file.save(
-                    f"{video.id}_captioned.{data['export_format']}",
-                    File(f),
-                    save=False,
-                )
-            job.status = "completed"
-            job.save(update_fields=["output_file", "status", "updated_at"])
-
-        except Exception as e:
-            job.status = "failed"
-            job.error_message = str(e)
-            job.save(update_fields=["status", "error_message", "updated_at"])
-            return api_error(f"Export failed: {e}", http_status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        return api_success(
-            data=ExportJobSerializer(job, context={"request": request}).data,
-            message="Video exported with captions.",
-        )
 
 
 # ── SRT download ──────────────────────────────────────────────────────────────
@@ -363,3 +300,28 @@ class SRTDownloadView(APIView):
             filename=f"captions_{video.id}_{language}.srt",
         )
         return response
+
+
+class SRTSizeView(APIView):
+    """GET /api/captions/videos/<uuid:video_id>/srt-size?language=en"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, video_id):
+        video = get_object_or_404(Video, pk=video_id, owner=request.user)
+        language = request.query_params.get("language", video.language)
+        
+        captions = Caption.objects.filter(video=video, language=language).order_by("start_time")
+        if not captions.exists():
+            captions = Caption.objects.filter(video=video).order_by("start_time")
+            language = video.language
+            
+        if not captions.exists():
+            return api_success(data={"size": 0}, message="No captions found.")
+            
+        use_translated = (language != video.language)
+        
+        from captions.utils.srt_generator import generate_srt_string
+        srt_content = generate_srt_string(captions, use_translated=use_translated)
+        size_bytes = len(srt_content.encode("utf-8"))
+        
+        return api_success(data={"size": size_bytes}, message="SRT size fetched successfully.")

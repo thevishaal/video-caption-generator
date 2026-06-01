@@ -12,7 +12,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-&lnuvua4c$*!4aul+&&!@vc&-#m6fh!4vs-_8w3wl(+8t$%f-%'
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-&lnuvua4c$*!4aul+&&!@vc&-#m6fh!4vs-_8w3wl(+8t$%f-%')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
@@ -58,7 +58,7 @@ MIDDLEWARE = [
 ]
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(days=15),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "AUTH_HEADER_TYPES": ("Bearer",),
     "ROTATE_REFRESH_TOKENS": True,
@@ -165,7 +165,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
 DOMAIN_NAME = os.getenv('DOMAIN_NAME', 'http://localhost:8000')
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'true').lower() == 'true'
 CORS_ALLOWED_ORIGINS = [
     FRONTEND_URL,
 ]

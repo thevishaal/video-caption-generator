@@ -9,6 +9,7 @@ class CaptionSerializer(serializers.ModelSerializer):
     is_caps = serializers.BooleanField(required=False, default=False)
     bg_opacity = serializers.IntegerField(min_value=0, max_value=100, required=False)
 
+
     class Meta:
         model = Caption
         fields = [
@@ -16,7 +17,8 @@ class CaptionSerializer(serializers.ModelSerializer):
             "original_text", "translated_text", "language",
             "font_family", "font_size", "font_color", "background_color",
             "position", "alignment", "bold", "italic",
-            "is_caps", "bg_opacity",  # <-- New styling fields added safely
+            "is_caps", "bg_opacity",
+
             "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
@@ -53,4 +55,4 @@ class CaptionStyleSerializer(serializers.Serializer):
     
     # --- NEW FIELDS ---
     is_caps = serializers.BooleanField(required=False, default=False)
-    bg_opacity = serializers.IntegerField(min_value=0, max_value=100, required=False)
+    bg_opacity = serializers.IntegerField(min_value=0, max_value=100, required=False)
